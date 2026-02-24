@@ -12,7 +12,7 @@ data:
     {
       "listen_socket": "/run/novaroute/novaroute.sock",
       "frr": {
-        "target": "localhost:50051",
+        "socket_dir": "/run/frr",
         "connect_timeout": 10,
         "retry_interval": 5
       },
@@ -60,8 +60,8 @@ data:
   daemons: |
     # FRR daemon configuration -- enable the daemons NovaRoute needs.
     #
-    # NovaRoute manages all configuration via the mgmtd northbound gRPC
-    # interface. This file only controls which daemons are started.
+    # NovaRoute manages all configuration via the VTY Unix socket interface.
+    # Each enabled daemon creates a <daemon>.vty socket in /run/frr/.
     bgpd=yes
     ospfd=yes
     ospf6d=no
@@ -76,7 +76,7 @@ data:
     babeld=no
     sharpd=no
     pbrd=no
-    bfdd=no
+    bfdd=yes
     fabricd=no
     vrrpd=no
     pathd=no
@@ -85,15 +85,15 @@ data:
     # Zebra is always started and cannot be disabled.
     #
 
-    # Management daemon -- required for northbound gRPC API.
+    # Management daemon.
     mgmtd=yes
 
     # Options for the daemons.
-    # gRPC northbound is loaded via -M grpc module on mgmtd.
-    mgmtd_options="--log syslog informational -M grpc"
+    mgmtd_options="--log syslog informational"
     zebra_options="-A 127.0.0.1 -s 90000000"
     bgpd_options="-A 127.0.0.1"
     ospfd_options="-A 127.0.0.1"
+    bfdd_options="-A 127.0.0.1"
 
     # The FRR_DEFAULT_PROFILE sets the default configuration profile.
     # Use "datacenter" for data center deployments.
@@ -108,7 +108,7 @@ data:
 
   frr.conf: |
     ! FRR bootstrap configuration.
-    ! NovaRoute manages runtime configuration via the northbound gRPC API.
+    ! NovaRoute manages runtime configuration via the VTY socket interface.
     ! This file provides minimal bootstrap settings.
     !
     frr version 10.5.1
@@ -117,7 +117,7 @@ data:
     log syslog informational
     !
     ! No static configuration -- NovaRoute will configure BGP, BFD, and OSPF
-    ! dynamically via the management daemon gRPC interface.
+    ! dynamically via the VTY Unix sockets.
     !
     line vty
     !

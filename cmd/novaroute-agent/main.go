@@ -1,7 +1,7 @@
 // Package main implements the novaroute-agent binary, the node-local
 // routing control plane daemon. It exposes a gRPC API on a Unix domain
 // socket, manages routing intents from multiple clients, and reconciles
-// the desired state to FRR via its northbound gRPC interface.
+// the desired state to FRR via its VTY Unix socket interface.
 package main
 
 import (
@@ -77,6 +77,7 @@ func main() {
 	)
 
 	// Connect FRR client in a background goroutine with retry loop.
+	// The VTY client connects to FRR daemon sockets in the socket directory.
 	var frrClient *frr.Client
 	frrReady := make(chan struct{})
 
@@ -89,14 +90,16 @@ func main() {
 			default:
 			}
 
-			logger.Info("connecting to FRR northbound gRPC",
-				zap.String("target", cfg.FRR.Target),
+			logger.Info("connecting to FRR VTY sockets",
+				zap.String("socket_dir", cfg.FRR.SocketDir),
 			)
 
-			client, connErr := frr.NewClient(cfg.FRR.Target, logger)
-			if connErr != nil {
-				logger.Warn("failed to connect to FRR, retrying",
-					zap.Error(connErr),
+			client := frr.NewClient(cfg.FRR.SocketDir, logger)
+
+			// Verify connectivity by checking that required sockets exist
+			// and fetching the FRR version via zebra.
+			if !client.IsReady() {
+				logger.Warn("FRR VTY sockets not ready, retrying",
 					zap.Duration("retry_in", retryInterval),
 				)
 				select {
@@ -107,17 +110,15 @@ func main() {
 				}
 			}
 
-			// Verify connectivity by fetching FRR version.
 			vCtx, vCancel := context.WithTimeout(ctx, time.Duration(cfg.FRR.ConnectTimeout)*time.Second)
 			version, vErr := client.GetVersion(vCtx)
 			vCancel()
 
 			if vErr != nil {
-				logger.Warn("FRR connected but GetVersion failed, retrying",
+				logger.Warn("FRR sockets exist but GetVersion failed, retrying",
 					zap.Error(vErr),
 					zap.Duration("retry_in", retryInterval),
 				)
-				_ = client.Close()
 				select {
 				case <-ctx.Done():
 					return
@@ -127,7 +128,7 @@ func main() {
 			}
 
 			frrClient = client
-			logger.Info("FRR connection established",
+			logger.Info("FRR VTY connection established",
 				zap.String("version", version),
 			)
 			close(frrReady)
@@ -135,24 +136,29 @@ func main() {
 		}
 	}()
 
-	// Create reconciler. It handles a nil frrClient gracefully and will
-	// start applying once the client is available.
-	rec := reconciler.NewReconciler(store, frrClient, logger)
-
-	// Wait briefly for FRR to connect before starting the reconciler loop,
-	// but do not block startup indefinitely.
-	select {
-	case <-frrReady:
-		// FRR connected, reconciler will use the client immediately.
-		rec = reconciler.NewReconciler(store, frrClient, logger)
-		logger.Info("FRR ready, starting reconciler with active client")
-	case <-time.After(5 * time.Second):
-		logger.Warn("FRR not ready after 5s, starting reconciler without FRR client (will retry)")
+	// Create reconciler. It starts with a nil FRR client and will receive
+	// the client once the FRR connection goroutine succeeds.
+	bgpGlobal := &reconciler.BGPGlobalConfig{
+		LocalAS:  cfg.BGP.LocalAS,
+		RouterID: cfg.BGP.RouterID,
 	}
+	rec := reconciler.NewReconciler(store, nil, logger, bgpGlobal)
 
-	// Start reconciler loop in background.
+	// Start reconciler loop immediately. It will skip FRR operations until
+	// the client is set.
 	rec.RunLoop(ctx, 30*time.Second)
 	logger.Info("reconciler loop started")
+
+	// When FRR connects, update the reconciler's client and trigger a reconcile.
+	go func() {
+		select {
+		case <-frrReady:
+			rec.SetFRRClient(frrClient)
+			logger.Info("FRR client injected into reconciler")
+			rec.TriggerReconcile()
+		case <-ctx.Done():
+		}
+	}()
 
 	// Create gRPC server.
 	grpcServer := grpc.NewServer()

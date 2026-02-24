@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	frr "github.com/piwi3910/NovaRoute/api/frr"
 	"go.uber.org/zap"
 )
 
@@ -14,7 +13,7 @@ import (
 //   - minRx: minimum receive interval in milliseconds (e.g. 300)
 //   - minTx: minimum transmit interval in milliseconds (e.g. 300)
 //   - detectMult: detection multiplier (e.g. 3)
-//   - iface: the interface to use for BFD (may be empty for non-interface-specific peers)
+//   - iface: the interface to use for BFD (may be empty)
 func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, detectMult uint32, iface string) error {
 	c.log.Info("adding BFD peer",
 		zap.String("peer_addr", peerAddr),
@@ -24,19 +23,22 @@ func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, 
 		zap.String("interface", iface),
 	)
 
-	peerBase := BFDPeerPath(peerAddr)
-
-	updates := []*frr.PathValue{
-		pv(peerBase+bfdMinRxInterval, fmt.Sprintf("%d", minRx)),
-		pv(peerBase+bfdMinTxInterval, fmt.Sprintf("%d", minTx)),
-		pv(peerBase+bfdDetectMultiplier, fmt.Sprintf("%d", detectMult)),
-	}
-
+	peerCmd := fmt.Sprintf("peer %s", peerAddr)
 	if iface != "" {
-		updates = append(updates, pv(peerBase+bfdInterface, iface))
+		peerCmd += fmt.Sprintf(" interface %s", iface)
 	}
 
-	if err := c.applyChanges(ctx, updates, nil); err != nil {
+	commands := []string{
+		"bfd",
+		peerCmd,
+		fmt.Sprintf("receive-interval %d", minRx),
+		fmt.Sprintf("transmit-interval %d", minTx),
+		fmt.Sprintf("detect-multiplier %d", detectMult),
+		"exit",
+		"exit",
+	}
+
+	if err := c.runConfig("bfdd", commands); err != nil {
 		return fmt.Errorf("frr: add BFD peer %s: %w", peerAddr, err)
 	}
 	return nil
@@ -46,13 +48,13 @@ func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, 
 func (c *Client) RemoveBFDPeer(ctx context.Context, peerAddr string) error {
 	c.log.Info("removing BFD peer", zap.String("peer_addr", peerAddr))
 
-	peerBase := BFDPeerPath(peerAddr)
-
-	deletes := []*frr.PathValue{
-		pvDelete(peerBase),
+	commands := []string{
+		"bfd",
+		fmt.Sprintf("no peer %s", peerAddr),
+		"exit",
 	}
 
-	if err := c.applyChanges(ctx, nil, deletes); err != nil {
+	if err := c.runConfig("bfdd", commands); err != nil {
 		return fmt.Errorf("frr: remove BFD peer %s: %w", peerAddr, err)
 	}
 	return nil

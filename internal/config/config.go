@@ -36,11 +36,11 @@ type Config struct {
 	DisconnectGracePeriod int `json:"disconnect_grace_period"`
 }
 
-// FRRConfig holds connection settings for the FRR management daemon.
+// FRRConfig holds connection settings for the FRR VTY daemon sockets.
 type FRRConfig struct {
-	// Target is the gRPC target for FRR northbound
-	// (e.g., "unix:///run/frr/mgmtd_fe.sock" or "localhost:50051").
-	Target string `json:"target"`
+	// SocketDir is the directory containing FRR daemon VTY sockets
+	// (e.g., "/run/frr"). Each daemon creates a <daemon>.vty socket.
+	SocketDir string `json:"socket_dir"`
 
 	// ConnectTimeout is the connection timeout in seconds.
 	ConnectTimeout int `json:"connect_timeout"`
@@ -86,7 +86,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		ListenSocket: "/run/novaroute/novaroute.sock",
 		FRR: FRRConfig{
-			Target:         "unix:///run/frr/mgmtd_fe.sock",
+			SocketDir:      "/run/frr",
 			ConnectTimeout: 10,
 			RetryInterval:  5,
 		},
@@ -125,8 +125,8 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("listen_socket must not be empty")
 	}
 
-	if cfg.FRR.Target == "" {
-		return fmt.Errorf("frr.target must not be empty")
+	if cfg.FRR.SocketDir == "" {
+		return fmt.Errorf("frr.socket_dir must not be empty")
 	}
 
 	if cfg.FRR.ConnectTimeout <= 0 {

@@ -1,5 +1,5 @@
 // Package reconciler translates routing intents from the intent store into
-// FRR configuration via the FRR northbound gRPC client. It periodically
+// FRR configuration via the FRR VTY socket client. It periodically
 // compares the desired state (intents) with the applied state (what was
 // last pushed to FRR) and applies the difference, handling additions,
 // updates, and removals.
@@ -18,6 +18,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// BGPGlobalConfig holds the BGP AS number and router ID needed to bootstrap
+// the BGP instance in FRR before any neighbors or networks can be added.
+type BGPGlobalConfig struct {
+	LocalAS  uint32
+	RouterID string
+}
+
 // Reconciler periodically compares the intent store's desired state with
 // FRR's actual state and applies the difference. It tracks what has been
 // applied to detect drift and ensure convergence.
@@ -25,12 +32,14 @@ type Reconciler struct {
 	intentStore *intent.Store
 	frrClient   *frr.Client
 	logger      *zap.Logger
+	bgpGlobal   *BGPGlobalConfig
 
 	// Track what we've applied to FRR to detect drift.
 	appliedPeers    map[string]*intent.PeerIntent
 	appliedPrefixes map[string]*intent.PrefixIntent
 	appliedBFD      map[string]*intent.BFDIntent
 	appliedOSPF     map[string]*intent.OSPFIntent
+	bgpConfigured   bool
 	mu              sync.Mutex
 
 	// triggerCh signals an immediate reconciliation.
@@ -39,7 +48,7 @@ type Reconciler struct {
 
 // NewReconciler creates a new Reconciler that reads intents from the given
 // store and applies them to FRR via the provided client.
-func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logger) *Reconciler {
+func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logger, bgpGlobal *BGPGlobalConfig) *Reconciler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -47,6 +56,7 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 		intentStore:     store,
 		frrClient:       frrClient,
 		logger:          logger.Named("reconciler"),
+		bgpGlobal:       bgpGlobal,
 		appliedPeers:    make(map[string]*intent.PeerIntent),
 		appliedPrefixes: make(map[string]*intent.PrefixIntent),
 		appliedBFD:      make(map[string]*intent.BFDIntent),
@@ -64,6 +74,12 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 func (r *Reconciler) Reconcile(ctx context.Context) error {
 	r.logger.Debug("starting reconciliation cycle")
 	start := time.Now()
+
+	// Ensure BGP global is configured before reconciling peers/prefixes.
+	if err := r.ensureBGPGlobal(ctx); err != nil {
+		r.logger.Error("failed to ensure BGP global config", zap.Error(err))
+		// Continue anyway — peer/prefix operations will fail but BFD/OSPF may work.
+	}
 
 	desiredPeers := r.intentStore.GetPeerIntents()
 	desiredPrefixes := r.intentStore.GetPrefixIntents()
@@ -463,7 +479,46 @@ func (r *Reconciler) TriggerReconcile() {
 	}
 }
 
+// SetFRRClient updates the FRR client used by the reconciler. This is called
+// when the FRR connection is established after the reconciler has already started.
+func (r *Reconciler) SetFRRClient(client *frr.Client) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.frrClient = client
+	r.logger.Info("FRR client updated in reconciler")
+}
+
 // --- FRR application helpers ---
+
+// ensureBGPGlobal configures the BGP instance (router bgp <AS>) in FRR if it
+// hasn't been done yet. This must be called before any peer or prefix operations.
+func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.bgpConfigured {
+		return nil
+	}
+	if r.frrClient == nil {
+		return fmt.Errorf("FRR client not available")
+	}
+	if r.bgpGlobal == nil || r.bgpGlobal.LocalAS == 0 {
+		return fmt.Errorf("BGP global config not set (local_as=0)")
+	}
+
+	r.logger.Info("configuring BGP global",
+		zap.Uint32("local_as", r.bgpGlobal.LocalAS),
+		zap.String("router_id", r.bgpGlobal.RouterID),
+	)
+
+	if err := r.frrClient.ConfigureBGPGlobal(ctx, r.bgpGlobal.LocalAS, r.bgpGlobal.RouterID); err != nil {
+		return fmt.Errorf("configure BGP global: %w", err)
+	}
+
+	r.bgpConfigured = true
+	r.logger.Info("BGP global configured successfully")
+	return nil
+}
 
 // applyPeerIntent translates a PeerIntent into FRR client calls:
 // AddNeighbor + ActivateNeighborAFI for each address family.

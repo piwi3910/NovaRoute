@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	frr "github.com/piwi3910/NovaRoute/api/frr"
 	"go.uber.org/zap"
 )
 
@@ -26,48 +25,54 @@ func (c *Client) EnableOSPFInterface(ctx context.Context, ifaceName, areaID stri
 		zap.Uint32("dead", dead),
 	)
 
-	ifacePath := OSPFInterfacePath(ifaceName, areaID)
-
-	passiveStr := "false"
-	if passive {
-		passiveStr = "true"
-	}
-
-	updates := []*frr.PathValue{
-		pv(ifacePath+ospfInterfacePassive, passiveStr),
+	// Configure OSPF on the interface using interface-level commands.
+	commands := []string{
+		fmt.Sprintf("interface %s", ifaceName),
+		fmt.Sprintf("ip ospf area %s", areaID),
 	}
 
 	if cost > 0 {
-		updates = append(updates, pv(ifacePath+ospfInterfaceCost, fmt.Sprintf("%d", cost)))
+		commands = append(commands, fmt.Sprintf("ip ospf cost %d", cost))
 	}
 	if hello > 0 {
-		updates = append(updates, pv(ifacePath+ospfInterfaceHelloInterval, fmt.Sprintf("%d", hello)))
+		commands = append(commands, fmt.Sprintf("ip ospf hello-interval %d", hello))
 	}
 	if dead > 0 {
-		updates = append(updates, pv(ifacePath+ospfInterfaceDeadInterval, fmt.Sprintf("%d", dead)))
+		commands = append(commands, fmt.Sprintf("ip ospf dead-interval %d", dead))
 	}
 
-	if err := c.applyChanges(ctx, updates, nil); err != nil {
+	commands = append(commands, "exit")
+
+	// If passive, also configure it in the router ospf context.
+	if passive {
+		commands = append(commands,
+			"router ospf",
+			fmt.Sprintf("passive-interface %s", ifaceName),
+		)
+	}
+
+	if err := c.runConfig("ospfd", commands); err != nil {
 		return fmt.Errorf("frr: enable OSPF on %s (area=%s): %w", ifaceName, areaID, err)
 	}
 	return nil
 }
 
-// DisableOSPFInterface removes OSPF configuration from the specified interface
-// within the given area.
+// DisableOSPFInterface removes OSPF configuration from the specified interface.
 func (c *Client) DisableOSPFInterface(ctx context.Context, ifaceName, areaID string) error {
 	c.log.Info("disabling OSPF interface",
 		zap.String("interface", ifaceName),
 		zap.String("area_id", areaID),
 	)
 
-	ifacePath := OSPFInterfacePath(ifaceName, areaID)
-
-	deletes := []*frr.PathValue{
-		pvDelete(ifacePath),
+	commands := []string{
+		fmt.Sprintf("interface %s", ifaceName),
+		fmt.Sprintf("no ip ospf area %s", areaID),
+		"exit",
+		"router ospf",
+		fmt.Sprintf("no passive-interface %s", ifaceName),
 	}
 
-	if err := c.applyChanges(ctx, nil, deletes); err != nil {
+	if err := c.runConfig("ospfd", commands); err != nil {
 		return fmt.Errorf("frr: disable OSPF on %s (area=%s): %w", ifaceName, areaID, err)
 	}
 	return nil

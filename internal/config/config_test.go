@@ -13,8 +13,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.ListenSocket != "/run/novaroute/novaroute.sock" {
 		t.Errorf("ListenSocket = %q, want %q", cfg.ListenSocket, "/run/novaroute/novaroute.sock")
 	}
-	if cfg.FRR.Target != "unix:///run/frr/mgmtd_fe.sock" {
-		t.Errorf("FRR.Target = %q, want %q", cfg.FRR.Target, "unix:///run/frr/mgmtd_fe.sock")
+	if cfg.FRR.SocketDir != "/run/frr" {
+		t.Errorf("FRR.SocketDir = %q, want %q", cfg.FRR.SocketDir, "/run/frr")
 	}
 	if cfg.FRR.ConnectTimeout != 10 {
 		t.Errorf("FRR.ConnectTimeout = %d, want %d", cfg.FRR.ConnectTimeout, 10)
@@ -65,7 +65,7 @@ func validConfig() *Config {
 	return &Config{
 		ListenSocket: "/run/novaroute/novaroute.sock",
 		FRR: FRRConfig{
-			Target:         "unix:///run/frr/mgmtd_fe.sock",
+			SocketDir:         "/run/frr",
 			ConnectTimeout: 10,
 			RetryInterval:  5,
 		},
@@ -151,8 +151,8 @@ func TestLoadFromFile_MergesWithDefaults(t *testing.T) {
 	if loaded.ListenSocket != "/run/novaroute/novaroute.sock" {
 		t.Errorf("ListenSocket = %q, want default %q", loaded.ListenSocket, "/run/novaroute/novaroute.sock")
 	}
-	if loaded.FRR.Target != "unix:///run/frr/mgmtd_fe.sock" {
-		t.Errorf("FRR.Target = %q, want default %q", loaded.FRR.Target, "unix:///run/frr/mgmtd_fe.sock")
+	if loaded.FRR.SocketDir != "/run/frr" {
+		t.Errorf("FRR.SocketDir = %q, want default %q", loaded.FRR.SocketDir, "/run/frr")
 	}
 	if loaded.FRR.ConnectTimeout != 10 {
 		t.Errorf("FRR.ConnectTimeout = %d, want default %d", loaded.FRR.ConnectTimeout, 10)
@@ -315,13 +315,13 @@ func TestValidate_EmptyListenSocket(t *testing.T) {
 	}
 }
 
-func TestValidate_EmptyFRRTarget(t *testing.T) {
+func TestValidate_EmptyFRRSocketDir(t *testing.T) {
 	cfg := validConfig()
-	cfg.FRR.Target = ""
+	cfg.FRR.SocketDir = ""
 
 	err := Validate(cfg)
 	if err == nil {
-		t.Fatal("expected error for empty FRR target, got nil")
+		t.Fatal("expected error for empty FRR socket_dir, got nil")
 	}
 }
 

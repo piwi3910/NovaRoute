@@ -4,33 +4,32 @@ import (
 	"context"
 	"fmt"
 
-	frr "github.com/piwi3910/NovaRoute/api/frr"
 	"go.uber.org/zap"
 )
 
-// ConfigureBGPGlobal sets up the BGP instance with the given local AS number
-// and router ID. This creates the default BGP instance if it does not already
-// exist, and configures its global parameters.
+// ConfigureBGPGlobal creates the BGP instance with the given AS number and
+// router ID. This is equivalent to "router bgp <AS>" + "bgp router-id <ID>".
 func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerID string) error {
 	c.log.Info("configuring BGP global",
 		zap.Uint32("local_as", localAS),
 		zap.String("router_id", routerID),
 	)
 
-	updates := []*frr.PathValue{
-		pv(bgpGlobalAS, fmt.Sprintf("%d", localAS)),
-		pv(bgpGlobalRouterID, routerID),
+	commands := []string{
+		fmt.Sprintf("router bgp %d", localAS),
+		fmt.Sprintf("bgp router-id %s", routerID),
 	}
 
-	if err := c.applyChanges(ctx, updates, nil); err != nil {
+	if err := c.runConfig("bgpd", commands); err != nil {
 		return fmt.Errorf("frr: configure BGP global (AS=%d, router_id=%s): %w", localAS, routerID, err)
 	}
+
+	c.localAS = localAS
 	return nil
 }
 
-// AddNeighbor adds a BGP neighbor with the given parameters. The peerType
-// should be "internal" for iBGP or "external" for eBGP. Keepalive and holdTime
-// are specified in seconds (typical values: keepalive=30, holdTime=90).
+// AddNeighbor adds a BGP neighbor. The peerType is "internal" or "external".
+// Keepalive and holdTime are in seconds (0 means use FRR defaults).
 func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, peerType string, keepalive, holdTime uint32) error {
 	c.log.Info("adding BGP neighbor",
 		zap.String("address", addr),
@@ -40,22 +39,19 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 		zap.Uint32("hold_time", holdTime),
 	)
 
-	neighborBase := BGPNeighborPath(addr)
-
-	updates := []*frr.PathValue{
-		pv(neighborBase+bgpNeighborRemoteAS, fmt.Sprintf("%d", remoteAS)),
-		pv(neighborBase+bgpNeighborPeerType, peerType),
-		pv(neighborBase+bgpNeighborEnabled, "true"),
+	// We need to enter "router bgp" context. Since we may not know the local AS
+	// at this point, we use the show command to discover it, or rely on the fact
+	// that the BGP instance was already created by ConfigureBGPGlobal.
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("neighbor %s remote-as %d", addr, remoteAS),
 	}
 
-	if keepalive > 0 {
-		updates = append(updates, pv(neighborBase+bgpNeighborTimersKeepalive, fmt.Sprintf("%d", keepalive)))
-	}
-	if holdTime > 0 {
-		updates = append(updates, pv(neighborBase+bgpNeighborTimersHoldTime, fmt.Sprintf("%d", holdTime)))
+	if keepalive > 0 && holdTime > 0 {
+		commands = append(commands, fmt.Sprintf("neighbor %s timers %d %d", addr, keepalive, holdTime))
 	}
 
-	if err := c.applyChanges(ctx, updates, nil); err != nil {
+	if err := c.runConfig("bgpd", commands); err != nil {
 		return fmt.Errorf("frr: add BGP neighbor %s (AS=%d): %w", addr, remoteAS, err)
 	}
 	return nil
@@ -65,83 +61,102 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 func (c *Client) RemoveNeighbor(ctx context.Context, addr string) error {
 	c.log.Info("removing BGP neighbor", zap.String("address", addr))
 
-	neighborBase := BGPNeighborPath(addr)
-
-	deletes := []*frr.PathValue{
-		pvDelete(neighborBase),
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("no neighbor %s", addr),
 	}
 
-	if err := c.applyChanges(ctx, nil, deletes); err != nil {
+	if err := c.runConfig("bgpd", commands); err != nil {
 		return fmt.Errorf("frr: remove BGP neighbor %s: %w", addr, err)
 	}
 	return nil
 }
 
 // ActivateNeighborAFI activates an address family for a BGP neighbor.
-// The afi parameter accepts friendly names ("ipv4-unicast", "ipv4",
-// "ipv6-unicast", "ipv6") or full YANG identities
-// (e.g. "frr-routing:ipv4-unicast").
+// The afi parameter accepts "ipv4-unicast", "ipv4", "ipv6-unicast", "ipv6".
 func (c *Client) ActivateNeighborAFI(ctx context.Context, addr string, afi string) error {
-	resolvedAFI := resolveAFI(afi)
+	afiName := resolveAFICLI(afi)
 
 	c.log.Info("activating BGP neighbor AFI",
 		zap.String("address", addr),
-		zap.String("afi", resolvedAFI),
+		zap.String("afi", afiName),
 	)
 
-	afiPath := BGPNeighborAFIPath(addr, resolvedAFI)
-
-	updates := []*frr.PathValue{
-		pv(afiPath+bgpNeighborAFIEnabled, "true"),
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("address-family %s", afiName),
+		fmt.Sprintf("neighbor %s activate", addr),
+		"exit-address-family",
 	}
 
-	if err := c.applyChanges(ctx, updates, nil); err != nil {
-		return fmt.Errorf("frr: activate AFI %s for neighbor %s: %w", resolvedAFI, addr, err)
+	if err := c.runConfig("bgpd", commands); err != nil {
+		return fmt.Errorf("frr: activate AFI %s for neighbor %s: %w", afiName, addr, err)
 	}
 	return nil
 }
 
 // AdvertiseNetwork adds a network prefix to BGP for advertisement.
 // The afi parameter accepts the same values as ActivateNeighborAFI.
-// The prefix should be in CIDR notation (e.g. "10.0.0.0/24").
 func (c *Client) AdvertiseNetwork(ctx context.Context, prefix string, afi string) error {
-	resolvedAFI := resolveAFI(afi)
+	afiName := resolveAFICLI(afi)
 
 	c.log.Info("advertising BGP network",
 		zap.String("prefix", prefix),
-		zap.String("afi", resolvedAFI),
+		zap.String("afi", afiName),
 	)
 
-	networkPath := BGPNetworkPath(prefix, resolvedAFI)
-
-	updates := []*frr.PathValue{
-		pv(networkPath, ""),
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("address-family %s", afiName),
+		fmt.Sprintf("network %s", prefix),
+		"exit-address-family",
 	}
 
-	if err := c.applyChanges(ctx, updates, nil); err != nil {
-		return fmt.Errorf("frr: advertise network %s (afi=%s): %w", prefix, resolvedAFI, err)
+	if err := c.runConfig("bgpd", commands); err != nil {
+		return fmt.Errorf("frr: advertise network %s (afi=%s): %w", prefix, afiName, err)
 	}
 	return nil
 }
 
 // WithdrawNetwork removes a network prefix from BGP advertisements.
-// The afi parameter accepts the same values as ActivateNeighborAFI.
 func (c *Client) WithdrawNetwork(ctx context.Context, prefix string, afi string) error {
-	resolvedAFI := resolveAFI(afi)
+	afiName := resolveAFICLI(afi)
 
 	c.log.Info("withdrawing BGP network",
 		zap.String("prefix", prefix),
-		zap.String("afi", resolvedAFI),
+		zap.String("afi", afiName),
 	)
 
-	networkPath := BGPNetworkPath(prefix, resolvedAFI)
-
-	deletes := []*frr.PathValue{
-		pvDelete(networkPath),
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("address-family %s", afiName),
+		fmt.Sprintf("no network %s", prefix),
+		"exit-address-family",
 	}
 
-	if err := c.applyChanges(ctx, nil, deletes); err != nil {
-		return fmt.Errorf("frr: withdraw network %s (afi=%s): %w", prefix, resolvedAFI, err)
+	if err := c.runConfig("bgpd", commands); err != nil {
+		return fmt.Errorf("frr: withdraw network %s (afi=%s): %w", prefix, afiName, err)
 	}
 	return nil
+}
+
+// getLocalAS returns the cached local AS or 0 if not yet known.
+// The reconciler calls ConfigureBGPGlobal first which sets up the BGP instance.
+// Subsequent calls just need to enter the existing "router bgp" context.
+func (c *Client) getLocalAS(_ context.Context) uint32 {
+	// The local AS is passed through the reconciler's BGPGlobalConfig.
+	// We store it after the first ConfigureBGPGlobal call.
+	return c.localAS
+}
+
+// resolveAFICLI maps AFI identifiers to FRR CLI address-family names.
+func resolveAFICLI(afi string) string {
+	switch afi {
+	case "ipv4-unicast", "ipv4":
+		return "ipv4 unicast"
+	case "ipv6-unicast", "ipv6":
+		return "ipv6 unicast"
+	default:
+		return afi
+	}
 }
