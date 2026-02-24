@@ -35,6 +35,9 @@ func dialVTY(socketPath string, timeout time.Duration) (*vtyConn, error) {
 
 	vc := &vtyConn{conn: conn, timeout: timeout}
 
+	// Set deadline for the initial banner read.
+	conn.SetDeadline(time.Now().Add(timeout))
+
 	// Read initial banner/prompt from daemon.
 	if _, _, err := vc.readResponse(); err != nil {
 		conn.Close()
