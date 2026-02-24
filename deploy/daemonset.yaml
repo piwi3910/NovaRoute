@@ -1,0 +1,145 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: novaroute-system
+  labels:
+    app.kubernetes.io/name: novaroute
+    app.kubernetes.io/part-of: novaroute
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: novaroute-agent
+  namespace: novaroute-system
+  labels:
+    app.kubernetes.io/name: novaroute-agent
+    app.kubernetes.io/component: agent
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: novaroute-agent
+  namespace: novaroute-system
+  labels:
+    app.kubernetes.io/name: novaroute-agent
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app: novaroute-agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: novaroute-agent
+        app.kubernetes.io/name: novaroute-agent
+        app.kubernetes.io/component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: novaroute-agent
+      terminationGracePeriodSeconds: 60
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      containers:
+        # NovaRoute agent -- the routing control plane
+        - name: novaroute-agent
+          image: ghcr.io/piwi3910/novaroute-agent:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/etc/novaroute/config.json
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9100
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          volumeMounts:
+            - name: run
+              mountPath: /run/novaroute
+            - name: frr-sock
+              mountPath: /run/frr
+            - name: config
+              mountPath: /etc/novaroute
+              readOnly: true
+
+        # FRR sidecar -- the routing engine (bgpd, bfdd, ospfd, zebra, mgmtd)
+        - name: frr
+          image: quay.io/frrouting/frr:10.3.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_ADMIN
+          volumeMounts:
+            - name: frr-sock
+              mountPath: /run/frr
+            - name: frr-config
+              mountPath: /etc/frr
+              readOnly: true
+
+      volumes:
+        # Exposes /run/novaroute/novaroute.sock to the host for NovaEdge/NovaNet clients.
+        - name: run
+          hostPath:
+            path: /run/novaroute
+            type: DirectoryOrCreate
+
+        # Shared between novaroute-agent and FRR for the northbound gRPC socket.
+        - name: frr-sock
+          emptyDir: {}
+
+        # NovaRoute agent configuration from ConfigMap.
+        - name: config
+          configMap:
+            name: novaroute-config
+
+        # FRR daemon bootstrap configuration from ConfigMap.
+        - name: frr-config
+          configMap:
+            name: novaroute-frr-bootstrap

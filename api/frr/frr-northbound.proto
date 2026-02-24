@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: BSD-2-Clause
+//
+// Copyright 2019 FRRouting
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+// this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright
+// notice, this list of conditions and the following disclaimer in the
+// documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+// BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+// THE POSSIBILITY OF SUCH DAMAGE.
+
+syntax = "proto3";
+
+package frr;
+
+option go_package = "github.com/piwi3910/NovaRoute/api/frr";
+
+service Northbound {
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse) {}
+  rpc Get(GetRequest) returns (stream GetResponse) {}
+  rpc CreateCandidate(CreateCandidateRequest) returns (CreateCandidateResponse) {}
+  rpc DeleteCandidate(DeleteCandidateRequest) returns (DeleteCandidateResponse) {}
+  rpc UpdateCandidate(UpdateCandidateRequest) returns (UpdateCandidateResponse) {}
+  rpc EditCandidate(EditCandidateRequest) returns (EditCandidateResponse) {}
+  rpc LoadToCandidate(LoadToCandidateRequest) returns (LoadToCandidateResponse) {}
+  rpc Commit(CommitRequest) returns (CommitResponse) {}
+  rpc ListTransactions(ListTransactionsRequest) returns (stream ListTransactionsResponse) {}
+  rpc GetTransaction(GetTransactionRequest) returns (GetTransactionResponse) {}
+  rpc LockConfig(LockConfigRequest) returns (LockConfigResponse) {}
+  rpc UnlockConfig(UnlockConfigRequest) returns (UnlockConfigResponse) {}
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse) {}
+}
+
+message GetCapabilitiesRequest {}
+
+message GetCapabilitiesResponse {
+  string frr_version = 1;
+  bool rollback_support = 2;
+  repeated ModuleData supported_modules = 3;
+  repeated Encoding supported_encodings = 4;
+}
+
+message GetRequest {
+  enum DataType {
+    ALL = 0;
+    CONFIG = 1;
+    STATE = 2;
+  }
+  DataType type = 1;
+  Encoding encoding = 2;
+  bool with_defaults = 3;
+  repeated string path = 4;
+}
+
+message GetResponse {
+  int64 timestamp = 1;
+  DataTree data = 2;
+}
+
+message CreateCandidateRequest {}
+
+message CreateCandidateResponse {
+  uint32 candidate_id = 1;
+}
+
+message DeleteCandidateRequest {
+  uint32 candidate_id = 1;
+}
+
+message DeleteCandidateResponse {}
+
+message UpdateCandidateRequest {
+  uint32 candidate_id = 1;
+}
+
+message UpdateCandidateResponse {}
+
+message EditCandidateRequest {
+  uint32 candidate_id = 1;
+  repeated PathValue update = 2;
+  repeated PathValue delete = 3;
+}
+
+message EditCandidateResponse {}
+
+message LoadToCandidateRequest {
+  enum LoadType {
+    MERGE = 0;
+    REPLACE = 1;
+  }
+  uint32 candidate_id = 1;
+  LoadType type = 2;
+  DataTree config = 3;
+}
+
+message LoadToCandidateResponse {}
+
+message CommitRequest {
+  enum Phase {
+    VALIDATE = 0;
+    PREPARE = 1;
+    ABORT = 2;
+    APPLY = 3;
+    ALL = 4;
+  }
+  uint32 candidate_id = 1;
+  Phase phase = 2;
+  string comment = 3;
+}
+
+message CommitResponse {
+  uint32 transaction_id = 1;
+  string error_message = 2;
+}
+
+message ListTransactionsRequest {}
+
+message ListTransactionsResponse {
+  uint32 id = 1;
+  string client = 2;
+  string date = 3;
+  string comment = 4;
+}
+
+message GetTransactionRequest {
+  uint32 transaction_id = 1;
+  Encoding encoding = 2;
+  bool with_defaults = 3;
+}
+
+message GetTransactionResponse {
+  DataTree config = 1;
+}
+
+message LockConfigRequest {}
+message LockConfigResponse {}
+
+message UnlockConfigRequest {}
+message UnlockConfigResponse {}
+
+message ExecuteRequest {
+  string path = 1;
+  repeated PathValue input = 2;
+}
+
+message ExecuteResponse {
+  repeated PathValue output = 1;
+}
+
+message ModuleData {
+  string name = 1;
+  string organization = 2;
+  string revision = 3;
+}
+
+enum Encoding {
+  JSON = 0;
+  XML = 1;
+}
+
+message PathValue {
+  string path = 1;
+  string value = 2;
+}
+
+message DataTree {
+  Encoding encoding = 1;
+  string data = 2;
+}

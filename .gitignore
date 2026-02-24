@@ -1,0 +1,15 @@
+# Binaries
+bin/
+/novaroute-agent
+/novaroutectl
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

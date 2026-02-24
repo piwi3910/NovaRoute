@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package novaroute.v1;
+
+option go_package = "github.com/piwi3910/NovaRoute/api/v1";
+
+// RouteControl is the main NovaRoute API service.
+// Clients (NovaEdge, NovaNet, Admin) connect via Unix domain socket
+// at /run/novaroute/novaroute.sock to manage routing intents.
+service RouteControl {
+  // Session management
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Deregister(DeregisterRequest) returns (DeregisterResponse);
+
+  // Peer management
+  rpc ApplyPeer(ApplyPeerRequest) returns (ApplyPeerResponse);
+  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse);
+
+  // Prefix advertisement
+  rpc AdvertisePrefix(AdvertisePrefixRequest) returns (AdvertisePrefixResponse);
+  rpc WithdrawPrefix(WithdrawPrefixRequest) returns (WithdrawPrefixResponse);
+
+  // BFD
+  rpc EnableBFD(EnableBFDRequest) returns (EnableBFDResponse);
+  rpc DisableBFD(DisableBFDRequest) returns (DisableBFDResponse);
+
+  // OSPF
+  rpc EnableOSPF(EnableOSPFRequest) returns (EnableOSPFResponse);
+  rpc DisableOSPF(DisableOSPFRequest) returns (DisableOSPFResponse);
+
+  // Observability
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  rpc StreamEvents(StreamEventsRequest) returns (stream RouteEvent);
+}
+
+// --- Session Management ---
+
+message RegisterRequest {
+  string owner = 1;
+  string token = 2;
+  bool reassert_intents = 3;
+}
+
+message RegisterResponse {
+  string session_id = 1;
+  repeated string current_prefixes = 2;
+  repeated string current_peers = 3;
+}
+
+message DeregisterRequest {
+  string owner = 1;
+  string token = 2;
+  bool withdraw_all = 3;
+}
+
+message DeregisterResponse {}
+
+// --- Peer Management ---
+
+message ApplyPeerRequest {
+  string owner = 1;
+  string token = 2;
+  BGPPeer peer = 3;
+}
+
+message BGPPeer {
+  string neighbor_address = 1;
+  uint32 remote_as = 2;
+  PeerType peer_type = 3;
+  uint32 keepalive = 4;
+  uint32 hold_time = 5;
+  bool bfd_enabled = 6;
+  string description = 7;
+  repeated AddressFamily address_families = 8;
+  string source_address = 9;
+  uint32 ebgp_multihop = 10;
+  string password = 11;
+}
+
+enum PeerType {
+  PEER_TYPE_UNSPECIFIED = 0;
+  PEER_TYPE_EXTERNAL = 1;
+  PEER_TYPE_INTERNAL = 2;
+}
+
+enum AddressFamily {
+  ADDRESS_FAMILY_UNSPECIFIED = 0;
+  ADDRESS_FAMILY_IPV4_UNICAST = 1;
+  ADDRESS_FAMILY_IPV6_UNICAST = 2;
+}
+
+message ApplyPeerResponse {}
+
+message RemovePeerRequest {
+  string owner = 1;
+  string token = 2;
+  string neighbor_address = 3;
+}
+
+message RemovePeerResponse {}
+
+// --- Prefix Advertisement ---
+
+message AdvertisePrefixRequest {
+  string owner = 1;
+  string token = 2;
+  string prefix = 3;
+  Protocol protocol = 4;
+  PrefixAttributes attributes = 5;
+}
+
+enum Protocol {
+  PROTOCOL_UNSPECIFIED = 0;
+  PROTOCOL_BGP = 1;
+  PROTOCOL_OSPF = 2;
+}
+
+message PrefixAttributes {
+  uint32 local_preference = 1;
+  repeated string communities = 2;
+  uint32 med = 3;
+  string next_hop = 4;
+}
+
+message AdvertisePrefixResponse {}
+
+message WithdrawPrefixRequest {
+  string owner = 1;
+  string token = 2;
+  string prefix = 3;
+  Protocol protocol = 4;
+}
+
+message WithdrawPrefixResponse {}
+
+// --- BFD ---
+
+message EnableBFDRequest {
+  string owner = 1;
+  string token = 2;
+  string peer_address = 3;
+  uint32 min_rx_ms = 4;
+  uint32 min_tx_ms = 5;
+  uint32 detect_multiplier = 6;
+  string interface_name = 7;
+}
+
+message EnableBFDResponse {}
+
+message DisableBFDRequest {
+  string owner = 1;
+  string token = 2;
+  string peer_address = 3;
+}
+
+message DisableBFDResponse {}
+
+// --- OSPF ---
+
+message EnableOSPFRequest {
+  string owner = 1;
+  string token = 2;
+  string interface_name = 3;
+  string area_id = 4;
+  bool passive = 5;
+  uint32 cost = 6;
+  uint32 hello_interval = 7;
+  uint32 dead_interval = 8;
+}
+
+message EnableOSPFResponse {}
+
+message DisableOSPFRequest {
+  string owner = 1;
+  string token = 2;
+  string interface_name = 3;
+}
+
+message DisableOSPFResponse {}
+
+// --- Observability ---
+
+message GetStatusRequest {
+  string owner_filter = 1;
+}
+
+message GetStatusResponse {
+  repeated PeerStatus peers = 1;
+  repeated PrefixStatus prefixes = 2;
+  repeated BFDSessionStatus bfd_sessions = 3;
+  repeated OSPFInterfaceStatus ospf_interfaces = 4;
+  FRRStatus frr_status = 5;
+}
+
+message PeerStatus {
+  string neighbor_address = 1;
+  uint32 remote_as = 2;
+  string state = 3;
+  string owner = 4;
+  uint32 prefixes_received = 5;
+  uint32 prefixes_sent = 6;
+  string uptime = 7;
+  bool bfd_enabled = 8;
+  string bfd_status = 9;
+}
+
+message PrefixStatus {
+  string prefix = 1;
+  Protocol protocol = 2;
+  string owner = 3;
+  string state = 4;
+}
+
+message BFDSessionStatus {
+  string peer_address = 1;
+  string state = 2;
+  string owner = 3;
+  uint32 min_rx_ms = 4;
+  uint32 min_tx_ms = 5;
+  uint32 detect_multiplier = 6;
+  string uptime = 7;
+}
+
+message OSPFInterfaceStatus {
+  string interface_name = 1;
+  string area_id = 2;
+  string state = 3;
+  string owner = 4;
+  uint32 neighbor_count = 5;
+  uint32 cost = 6;
+}
+
+message FRRStatus {
+  string version = 1;
+  bool connected = 2;
+  string uptime = 3;
+}
+
+message StreamEventsRequest {
+  string owner_filter = 1;
+  repeated string event_types = 2;
+}
+
+message RouteEvent {
+  EventType type = 1;
+  string detail = 2;
+  int64 timestamp_unix = 3;
+  string owner = 4;
+  map<string, string> metadata = 5;
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_PEER_UP = 1;
+  EVENT_TYPE_PEER_DOWN = 2;
+  EVENT_TYPE_PREFIX_ADVERTISED = 3;
+  EVENT_TYPE_PREFIX_WITHDRAWN = 4;
+  EVENT_TYPE_BFD_UP = 5;
+  EVENT_TYPE_BFD_DOWN = 6;
+  EVENT_TYPE_OSPF_NEIGHBOR_UP = 7;
+  EVENT_TYPE_OSPF_NEIGHBOR_DOWN = 8;
+  EVENT_TYPE_FRR_CONNECTED = 9;
+  EVENT_TYPE_FRR_DISCONNECTED = 10;
+  EVENT_TYPE_OWNER_REGISTERED = 11;
+  EVENT_TYPE_OWNER_DEREGISTERED = 12;
+  EVENT_TYPE_POLICY_VIOLATION = 13;
+}
