@@ -1,0 +1,128 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: novaroute-config
+  namespace: novaroute-system
+  labels:
+    app.kubernetes.io/name: novaroute-agent
+    app.kubernetes.io/component: config
+data:
+  config.json: |
+    {
+      "listen_socket": "/run/novaroute/novaroute.sock",
+      "frr": {
+        "target": "unix:///run/frr/mgmtd_fe.sock",
+        "connect_timeout": 10,
+        "retry_interval": 5
+      },
+      "bgp": {
+        "local_as": 65000,
+        "router_id": "10.0.0.1"
+      },
+      "owners": {
+        "novaedge": {
+          "token": "${NOVAEDGE_TOKEN}",
+          "allowed_prefixes": {
+            "type": "host_only",
+            "allowed_cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+          }
+        },
+        "novanet": {
+          "token": "${NOVANET_TOKEN}",
+          "allowed_prefixes": {
+            "type": "subnet",
+            "allowed_cidrs": ["10.244.0.0/16"]
+          }
+        },
+        "admin": {
+          "token": "${ADMIN_TOKEN}",
+          "allowed_prefixes": {
+            "type": "any",
+            "allowed_cidrs": []
+          }
+        }
+      },
+      "log_level": "info",
+      "metrics_address": ":9100",
+      "disconnect_grace_period": 30
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: novaroute-frr-bootstrap
+  namespace: novaroute-system
+  labels:
+    app.kubernetes.io/name: novaroute-agent
+    app.kubernetes.io/component: frr-config
+data:
+  daemons: |
+    # FRR daemon configuration -- enable the daemons NovaRoute needs.
+    #
+    # NovaRoute manages all configuration via the mgmtd northbound gRPC
+    # interface. This file only controls which daemons are started.
+    bgpd=yes
+    ospfd=yes
+    ospf6d=no
+    ripd=no
+    ripngd=no
+    isisd=no
+    pimd=no
+    pim6d=no
+    ldpd=no
+    nhrpd=no
+    eigrpd=no
+    babeld=no
+    sharpd=no
+    pbrd=no
+    bfdd=yes
+    fabricd=no
+    vrrpd=no
+    pathd=no
+
+    #
+    # Zebra is always started and cannot be disabled.
+    #
+
+    # Management daemon -- required for northbound gRPC API.
+    mgmtd=yes
+
+    # Options for the daemons.
+    # Enable northbound gRPC on mgmtd for NovaRoute agent.
+    mgmtd_options="--log syslog informational --grpc-port 50051"
+    zebra_options="-A 127.0.0.1 -s 90000000"
+    bgpd_options="-A 127.0.0.1"
+    ospfd_options="-A 127.0.0.1"
+    bfdd_options="-A 127.0.0.1"
+
+    # The FRR_DEFAULT_PROFILE sets the default configuration profile.
+    # Use "datacenter" for data center deployments.
+    frr_profile="datacenter"
+
+    # Maximum number of FIB routes.
+    MAX_FIB_ROUTES=1000000
+
+    # watchfrr options -- restart daemons that crash.
+    watchfrr_enable=yes
+    watchfrr_options=""
+
+  frr.conf: |
+    ! FRR bootstrap configuration.
+    ! NovaRoute manages runtime configuration via the northbound gRPC API.
+    ! This file provides minimal bootstrap settings.
+    !
+    frr version 10.3.1
+    frr defaults datacenter
+    !
+    log syslog informational
+    !
+    ! No static configuration -- NovaRoute will configure BGP, BFD, and OSPF
+    ! dynamically via the management daemon gRPC interface.
+    !
+    line vty
+    !
+
+  vtysh.conf: |
+    ! vtysh configuration
+    service integrated-vtysh-config
