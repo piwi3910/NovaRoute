@@ -8,12 +8,6 @@ import (
 )
 
 // AddBFDPeer creates a single-hop BFD session for the given peer address.
-// Parameters:
-//   - peerAddr: the peer's IP address
-//   - minRx: minimum receive interval in milliseconds (e.g. 300)
-//   - minTx: minimum transmit interval in milliseconds (e.g. 300)
-//   - detectMult: detection multiplier (e.g. 3)
-//   - iface: the interface to use for BFD (may be empty)
 func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, detectMult uint32, iface string) error {
 	c.log.Info("adding BFD peer",
 		zap.String("peer_addr", peerAddr),
@@ -38,7 +32,7 @@ func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, 
 		"exit",
 	}
 
-	if err := c.runConfig("bfdd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: add BFD peer %s: %w", peerAddr, err)
 	}
 	return nil
@@ -54,7 +48,7 @@ func (c *Client) RemoveBFDPeer(ctx context.Context, peerAddr string) error {
 		"exit",
 	}
 
-	if err := c.runConfig("bfdd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: remove BFD peer %s: %w", peerAddr, err)
 	}
 	return nil

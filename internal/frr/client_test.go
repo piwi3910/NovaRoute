@@ -2,115 +2,95 @@ package frr
 
 import (
 	"context"
-	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
-	"sync"
 	"testing"
 )
 
-// mockVTYDaemon simulates an FRR daemon's VTY Unix socket.
-// It accepts one connection, reads commands, and responds with the VTY protocol.
-type mockVTYDaemon struct {
-	mu       sync.Mutex
-	commands []string // All commands received.
-	listener net.Listener
-}
-
-// newMockVTYDaemon creates a mock VTY daemon listening on a Unix socket.
-func newMockVTYDaemon(t *testing.T, dir, name string) *mockVTYDaemon {
+// setupFakeVtysh creates a fake vtysh script that records commands to a file.
+// For stdin mode (config): writes stdin content to <dir>/stdin.
+// For -c mode (show): writes the command arg to <dir>/show_cmd.
+// The script echoes the content of <dir>/response if it exists.
+func setupFakeVtysh(t *testing.T) (*Client, string) {
 	t.Helper()
 
-	sockPath := filepath.Join(dir, name+".vty")
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("failed to listen on %s: %v", sockPath, err)
-	}
+	dir := t.TempDir()
 
-	m := &mockVTYDaemon{listener: listener}
-	go m.serve(t)
+	script := filepath.Join(dir, "vtysh")
+	content := `#!/bin/sh
+RECORD_DIR="` + dir + `"
 
-	t.Cleanup(func() {
-		listener.Close()
-	})
+# Parse args: look for -c (show command mode)
+SHOW_CMD=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c) shift; SHOW_CMD="$1"; shift ;;
+    *) shift ;;
+  esac
+done
 
-	return m
-}
-
-func (m *mockVTYDaemon) serve(t *testing.T) {
-	t.Helper()
-
-	for {
-		conn, err := m.listener.Accept()
-		if err != nil {
-			return // Listener closed.
-		}
-		go m.handleConn(conn)
-	}
-}
-
-func (m *mockVTYDaemon) handleConn(conn net.Conn) {
-	defer conn.Close()
-
-	// Unix VTY sockets do NOT send a banner — the daemon just waits for commands.
-	buf := make([]byte, 4096)
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			return
-		}
-
-		// Commands are null-terminated.
-		cmd := string(buf[:n-1]) // Strip null terminator.
-
-		m.mu.Lock()
-		m.commands = append(m.commands, cmd)
-		m.mu.Unlock()
-
-		// Respond with success marker.
-		sendMarker(conn, "", cmdSuccess)
-	}
-}
-
-func (m *mockVTYDaemon) getCommands() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]string, len(m.commands))
-	copy(result, m.commands)
-	return result
-}
-
-// sendMarker sends output followed by the 4-byte VTY status marker.
-func sendMarker(conn net.Conn, output string, status byte) {
-	data := append([]byte(output), 0, status, 0, 0)
-	conn.Write(data)
-}
-
-// setupVTYTest creates a temp directory with mock VTY daemons and returns a Client.
-// Uses a short base path to avoid Unix socket path length limits (104 bytes on macOS).
-func setupVTYTest(t *testing.T, daemons ...string) (*Client, map[string]*mockVTYDaemon) {
-	t.Helper()
-
-	dir, err := os.MkdirTemp("/tmp", "vty")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-
-	mocks := make(map[string]*mockVTYDaemon, len(daemons))
-
-	for _, d := range daemons {
-		mocks[d] = newMockVTYDaemon(t, dir, d)
+if [ -n "$SHOW_CMD" ]; then
+  echo "$SHOW_CMD" >> "$RECORD_DIR/show_cmd"
+  if [ -f "$RECORD_DIR/response" ]; then
+    cat "$RECORD_DIR/response"
+  fi
+else
+  cat > "$RECORD_DIR/stdin"
+  if [ -f "$RECORD_DIR/response" ]; then
+    cat "$RECORD_DIR/response"
+  fi
+fi
+exit 0
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake vtysh: %v", err)
 	}
 
 	client := NewClient(dir, nil)
-	// Use short timeout for tests.
-	client.timeout = 2 * 1e9 // 2 seconds
+	client.vtyshPath = script
+	client.timeout = 5e9 // 5 seconds
 
-	return client, mocks
+	return client, dir
+}
+
+// readRecordedStdin returns the stdin content sent to fake vtysh.
+func readRecordedStdin(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "stdin"))
+	if err != nil {
+		t.Fatalf("read recorded stdin: %v", err)
+	}
+	return string(data)
+}
+
+// readRecordedShowCmd returns the show command sent to fake vtysh.
+func readRecordedShowCmd(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "show_cmd"))
+	if err != nil {
+		t.Fatalf("read recorded show_cmd: %v", err)
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// setFakeResponse writes a response that the fake vtysh will return.
+func setFakeResponse(t *testing.T, dir, response string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "response"), []byte(response), 0o644); err != nil {
+		t.Fatalf("write fake response: %v", err)
+	}
+}
+
+// assertStdinContains checks that the recorded stdin contains the expected command line.
+func assertStdinContains(t *testing.T, stdin, expected string) {
+	t.Helper()
+	for _, line := range strings.Split(stdin, "\n") {
+		if strings.TrimSpace(line) == expected {
+			return
+		}
+	}
+	t.Errorf("command %q not found in stdin:\n%s", expected, stdin)
 }
 
 // --- Client tests ---
@@ -157,34 +137,8 @@ func TestCloseNoOp(t *testing.T) {
 }
 
 func TestGetVersion(t *testing.T) {
-	client, mocks := setupVTYTest(t, "zebra")
-
-	// Override the mock to return version in the show command response.
-	// We need to close the default mock and create a custom one.
-	mocks["zebra"].listener.Close()
-
-	dir := client.socketDir
-	sockPath := filepath.Join(dir, "zebra.vty")
-	os.Remove(sockPath)
-
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { listener.Close() })
-
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		// Unix VTY: no banner, no enable. First command is "show version".
-		buf := make([]byte, 4096)
-		conn.Read(buf)
-		sendMarker(conn, "FRRouting 10.5.1 (Mock)\n  running on Linux\n", cmdSuccess)
-	}()
+	client, dir := setupFakeVtysh(t)
+	setFakeResponse(t, dir, "FRRouting 10.5.1 (Mock)\n  running on Linux\n")
 
 	ctx := context.Background()
 	version, err := client.GetVersion(ctx)
@@ -194,12 +148,17 @@ func TestGetVersion(t *testing.T) {
 	if version != "10.5.1 (Mock)" {
 		t.Errorf("GetVersion = %q, want %q", version, "10.5.1 (Mock)")
 	}
+
+	cmd := readRecordedShowCmd(t, dir)
+	if cmd != "show version" {
+		t.Errorf("show command = %q, want %q", cmd, "show version")
+	}
 }
 
 // --- BGP tests ---
 
 func TestConfigureBGPGlobal(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.ConfigureBGPGlobal(ctx, 65000, "10.0.0.1")
@@ -207,10 +166,11 @@ func TestConfigureBGPGlobal(t *testing.T) {
 		t.Fatalf("ConfigureBGPGlobal error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "configure terminal")
-	assertContainsCmd(t, cmds, "router bgp 65000")
-	assertContainsCmd(t, cmds, "bgp router-id 10.0.0.1")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "configure terminal")
+	assertStdinContains(t, stdin, "router bgp 65000")
+	assertStdinContains(t, stdin, "bgp router-id 10.0.0.1")
+	assertStdinContains(t, stdin, "end")
 
 	if client.localAS != 65000 {
 		t.Errorf("localAS = %d, want 65000", client.localAS)
@@ -218,7 +178,7 @@ func TestConfigureBGPGlobal(t *testing.T) {
 }
 
 func TestAddNeighbor(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 	client.localAS = 65000
 
@@ -227,14 +187,14 @@ func TestAddNeighbor(t *testing.T) {
 		t.Fatalf("AddNeighbor error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "router bgp 65000")
-	assertContainsCmd(t, cmds, "neighbor 192.168.1.1 remote-as 65001")
-	assertContainsCmd(t, cmds, "neighbor 192.168.1.1 timers 30 90")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "router bgp 65000")
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 remote-as 65001")
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 timers 30 90")
 }
 
 func TestAddNeighborDefaultTimers(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 	client.localAS = 65000
 
@@ -243,19 +203,17 @@ func TestAddNeighborDefaultTimers(t *testing.T) {
 		t.Fatalf("AddNeighbor error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "neighbor 10.0.0.2 remote-as 65002")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "neighbor 10.0.0.2 remote-as 65002")
 
 	// Timer command should not be present when 0.
-	for _, cmd := range cmds {
-		if strings.Contains(cmd, "timers") {
-			t.Errorf("unexpected timers command: %s", cmd)
-		}
+	if strings.Contains(stdin, "timers") {
+		t.Errorf("unexpected timers command in stdin:\n%s", stdin)
 	}
 }
 
 func TestRemoveNeighbor(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 	client.localAS = 65000
 
@@ -264,12 +222,12 @@ func TestRemoveNeighbor(t *testing.T) {
 		t.Fatalf("RemoveNeighbor error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "no neighbor 192.168.1.1")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no neighbor 192.168.1.1")
 }
 
 func TestActivateNeighborAFI(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 	client.localAS = 65000
 
@@ -278,14 +236,14 @@ func TestActivateNeighborAFI(t *testing.T) {
 		t.Fatalf("ActivateNeighborAFI error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "address-family ipv4 unicast")
-	assertContainsCmd(t, cmds, "neighbor 192.168.1.1 activate")
-	assertContainsCmd(t, cmds, "exit-address-family")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "address-family ipv4 unicast")
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 activate")
+	assertStdinContains(t, stdin, "exit-address-family")
 }
 
 func TestAdvertiseNetwork(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 	client.localAS = 65000
 
@@ -294,13 +252,13 @@ func TestAdvertiseNetwork(t *testing.T) {
 		t.Fatalf("AdvertiseNetwork error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "address-family ipv4 unicast")
-	assertContainsCmd(t, cmds, "network 10.0.0.0/24")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "address-family ipv4 unicast")
+	assertStdinContains(t, stdin, "network 10.0.0.0/24")
 }
 
 func TestWithdrawNetwork(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bgpd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 	client.localAS = 65000
 
@@ -309,14 +267,14 @@ func TestWithdrawNetwork(t *testing.T) {
 		t.Fatalf("WithdrawNetwork error: %v", err)
 	}
 
-	cmds := mocks["bgpd"].getCommands()
-	assertContainsCmd(t, cmds, "no network 10.0.0.0/24")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no network 10.0.0.0/24")
 }
 
 // --- BFD tests ---
 
 func TestAddBFDPeer(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bfdd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.AddBFDPeer(ctx, "192.168.1.1", 300, 300, 3, "eth0")
@@ -324,16 +282,16 @@ func TestAddBFDPeer(t *testing.T) {
 		t.Fatalf("AddBFDPeer error: %v", err)
 	}
 
-	cmds := mocks["bfdd"].getCommands()
-	assertContainsCmd(t, cmds, "bfd")
-	assertContainsCmd(t, cmds, "peer 192.168.1.1 interface eth0")
-	assertContainsCmd(t, cmds, "receive-interval 300")
-	assertContainsCmd(t, cmds, "transmit-interval 300")
-	assertContainsCmd(t, cmds, "detect-multiplier 3")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "bfd")
+	assertStdinContains(t, stdin, "peer 192.168.1.1 interface eth0")
+	assertStdinContains(t, stdin, "receive-interval 300")
+	assertStdinContains(t, stdin, "transmit-interval 300")
+	assertStdinContains(t, stdin, "detect-multiplier 3")
 }
 
 func TestAddBFDPeerNoInterface(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bfdd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.AddBFDPeer(ctx, "10.0.0.1", 200, 200, 5, "")
@@ -341,19 +299,20 @@ func TestAddBFDPeerNoInterface(t *testing.T) {
 		t.Fatalf("AddBFDPeer error: %v", err)
 	}
 
-	cmds := mocks["bfdd"].getCommands()
-	assertContainsCmd(t, cmds, "peer 10.0.0.1")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "peer 10.0.0.1")
 
 	// Should not contain "interface" in the peer command.
-	for _, cmd := range cmds {
-		if strings.HasPrefix(cmd, "peer ") && strings.Contains(cmd, "interface") {
-			t.Errorf("unexpected interface in peer command: %s", cmd)
+	for _, line := range strings.Split(stdin, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer ") && strings.Contains(line, "interface") {
+			t.Errorf("unexpected interface in peer command: %s", line)
 		}
 	}
 }
 
 func TestRemoveBFDPeer(t *testing.T) {
-	client, mocks := setupVTYTest(t, "bfdd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.RemoveBFDPeer(ctx, "192.168.1.1")
@@ -361,14 +320,14 @@ func TestRemoveBFDPeer(t *testing.T) {
 		t.Fatalf("RemoveBFDPeer error: %v", err)
 	}
 
-	cmds := mocks["bfdd"].getCommands()
-	assertContainsCmd(t, cmds, "no peer 192.168.1.1")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no peer 192.168.1.1")
 }
 
 // --- OSPF tests ---
 
 func TestOSPFEnableInterface(t *testing.T) {
-	client, mocks := setupVTYTest(t, "ospfd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.EnableOSPFInterface(ctx, "eth0", "0.0.0.0", true, 10, 5, 20)
@@ -376,17 +335,17 @@ func TestOSPFEnableInterface(t *testing.T) {
 		t.Fatalf("EnableOSPFInterface error: %v", err)
 	}
 
-	cmds := mocks["ospfd"].getCommands()
-	assertContainsCmd(t, cmds, "interface eth0")
-	assertContainsCmd(t, cmds, "ip ospf area 0.0.0.0")
-	assertContainsCmd(t, cmds, "ip ospf cost 10")
-	assertContainsCmd(t, cmds, "ip ospf hello-interval 5")
-	assertContainsCmd(t, cmds, "ip ospf dead-interval 20")
-	assertContainsCmd(t, cmds, "passive-interface eth0")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "interface eth0")
+	assertStdinContains(t, stdin, "ip ospf area 0.0.0.0")
+	assertStdinContains(t, stdin, "ip ospf cost 10")
+	assertStdinContains(t, stdin, "ip ospf hello-interval 5")
+	assertStdinContains(t, stdin, "ip ospf dead-interval 20")
+	assertStdinContains(t, stdin, "passive-interface eth0")
 }
 
 func TestOSPFEnableInterfaceDefaultTimers(t *testing.T) {
-	client, mocks := setupVTYTest(t, "ospfd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.EnableOSPFInterface(ctx, "eth1", "0.0.0.1", false, 0, 0, 0)
@@ -394,27 +353,25 @@ func TestOSPFEnableInterfaceDefaultTimers(t *testing.T) {
 		t.Fatalf("EnableOSPFInterface error: %v", err)
 	}
 
-	cmds := mocks["ospfd"].getCommands()
-	assertContainsCmd(t, cmds, "interface eth1")
-	assertContainsCmd(t, cmds, "ip ospf area 0.0.0.1")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "interface eth1")
+	assertStdinContains(t, stdin, "ip ospf area 0.0.0.1")
 
 	// Cost, hello, dead should not be present when 0.
-	for _, cmd := range cmds {
-		if strings.Contains(cmd, "cost") || strings.Contains(cmd, "hello-interval") || strings.Contains(cmd, "dead-interval") {
-			t.Errorf("unexpected timer command: %s", cmd)
+	for _, kw := range []string{"cost", "hello-interval", "dead-interval"} {
+		if strings.Contains(stdin, kw) {
+			t.Errorf("unexpected %q in stdin:\n%s", kw, stdin)
 		}
 	}
 
 	// Passive should not be present when false.
-	for _, cmd := range cmds {
-		if strings.Contains(cmd, "passive") {
-			t.Errorf("unexpected passive command: %s", cmd)
-		}
+	if strings.Contains(stdin, "passive") {
+		t.Errorf("unexpected passive in stdin:\n%s", stdin)
 	}
 }
 
 func TestOSPFDisableInterface(t *testing.T) {
-	client, mocks := setupVTYTest(t, "ospfd")
+	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
 	err := client.DisableOSPFInterface(ctx, "eth0", "0.0.0.0")
@@ -422,8 +379,8 @@ func TestOSPFDisableInterface(t *testing.T) {
 		t.Fatalf("DisableOSPFInterface error: %v", err)
 	}
 
-	cmds := mocks["ospfd"].getCommands()
-	assertContainsCmd(t, cmds, "no ip ospf area 0.0.0.0")
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no ip ospf area 0.0.0.0")
 }
 
 // --- AFI resolution tests ---
@@ -450,29 +407,92 @@ func TestResolveAFICLI(t *testing.T) {
 	}
 }
 
-// --- Connection error tests ---
+// --- Error handling tests ---
 
-func TestRunConfigBadSocket(t *testing.T) {
-	client := NewClient(t.TempDir(), nil)
-	err := client.runConfig("bgpd", []string{"router bgp 65000"})
+func TestRunConfigVtyshError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a fake vtysh that returns an error marker.
+	script := filepath.Join(dir, "vtysh")
+	content := `#!/bin/sh
+echo "% Unknown command"
+exit 0
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewClient(dir, nil)
+	client.vtyshPath = script
+
+	err := client.runConfig(context.Background(), []string{"bad command"})
 	if err == nil {
-		t.Error("expected error connecting to nonexistent socket")
+		t.Error("expected error for vtysh error output")
+	}
+	if !strings.Contains(err.Error(), "% Unknown command") {
+		t.Errorf("error = %q, want to contain '%%  Unknown command'", err.Error())
 	}
 }
 
-func TestRunShowBadSocket(t *testing.T) {
-	client := NewClient(t.TempDir(), nil)
-	_, err := client.runShow("zebra", "show version")
+func TestRunConfigVtyshExitError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a fake vtysh that exits with non-zero.
+	script := filepath.Join(dir, "vtysh")
+	content := `#!/bin/sh
+echo "connection refused"
+exit 1
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewClient(dir, nil)
+	client.vtyshPath = script
+
+	err := client.runConfig(context.Background(), []string{"router bgp 65000"})
 	if err == nil {
-		t.Error("expected error connecting to nonexistent socket")
+		t.Error("expected error for non-zero exit")
 	}
 }
 
-// --- Helpers ---
+func TestRunShowVtyshError(t *testing.T) {
+	dir := t.TempDir()
 
-func assertContainsCmd(t *testing.T, cmds []string, expected string) {
-	t.Helper()
-	if !slices.Contains(cmds, expected) {
-		t.Errorf("command %q not found in: %s", expected, fmt.Sprintf("%v", cmds))
+	script := filepath.Join(dir, "vtysh")
+	content := `#!/bin/sh
+echo "vtysh: cannot connect"
+exit 2
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewClient(dir, nil)
+	client.vtyshPath = script
+
+	_, err := client.runShow(context.Background(), "show version")
+	if err == nil {
+		t.Error("expected error for non-zero exit")
+	}
+}
+
+func TestRunConfigBadVtyshPath(t *testing.T) {
+	client := NewClient(t.TempDir(), nil)
+	client.vtyshPath = "/nonexistent/vtysh"
+
+	err := client.runConfig(context.Background(), []string{"router bgp 65000"})
+	if err == nil {
+		t.Error("expected error for nonexistent vtysh binary")
+	}
+}
+
+func TestRunShowBadVtyshPath(t *testing.T) {
+	client := NewClient(t.TempDir(), nil)
+	client.vtyshPath = "/nonexistent/vtysh"
+
+	_, err := client.runShow(context.Background(), "show version")
+	if err == nil {
+		t.Error("expected error for nonexistent vtysh binary")
 	}
 }

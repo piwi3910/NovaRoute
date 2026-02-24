@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,31 +13,41 @@ import (
 	"go.uber.org/zap"
 )
 
-// Client configures FRR daemons by connecting to their VTY Unix sockets
-// and sending CLI commands. Each operation opens a fresh connection to the
-// target daemon socket, sends the commands, and disconnects.
+// Client configures FRR daemons by invoking vtysh, the integrated FRR CLI
+// shell. Each operation runs "vtysh -c <cmd>" (for show commands) or
+// "vtysh -f <file>" (for config batches) to configure all relevant daemons.
 type Client struct {
 	socketDir string
+	vtyshPath string
 	timeout   time.Duration
 	log       *zap.Logger
 	mu        sync.Mutex
 	localAS   uint32 // Cached after ConfigureBGPGlobal.
 }
 
-// NewClient creates a new FRR VTY client that communicates with FRR daemons
-// through their Unix sockets in the given directory (typically /run/frr).
+// NewClient creates a new FRR client that communicates with FRR daemons
+// via vtysh. The socketDir (typically /run/frr) is used for readiness checks.
 func NewClient(socketDir string, logger *zap.Logger) *Client {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	vtysh := "vtysh"
+	// Check common FRR paths.
+	for _, p := range []string{"/usr/bin/vtysh", "/usr/lib/frr/vtysh"} {
+		if _, err := os.Stat(p); err == nil {
+			vtysh = p
+			break
+		}
+	}
 	return &Client{
 		socketDir: socketDir,
-		timeout:   10 * time.Second,
+		vtyshPath: vtysh,
+		timeout:   30 * time.Second,
 		log:       logger,
 	}
 }
 
-// Close is a no-op for the VTY client since connections are per-operation.
+// Close is a no-op since vtysh is invoked per-operation.
 func (c *Client) Close() error {
 	return nil
 }
@@ -52,9 +63,9 @@ func (c *Client) IsReady() bool {
 	return true
 }
 
-// GetVersion returns the FRR version by running "show version" on zebra.
+// GetVersion returns the FRR version by running "show version" via vtysh.
 func (c *Client) GetVersion(ctx context.Context) (string, error) {
-	output, err := c.runShow("zebra", "show version")
+	output, err := c.runShow(ctx, "show version")
 	if err != nil {
 		return "", fmt.Errorf("frr: get version: %w", err)
 	}
@@ -68,67 +79,58 @@ func (c *Client) GetVersion(ctx context.Context) (string, error) {
 	return strings.TrimSpace(strings.Split(output, "\n")[0]), nil
 }
 
-// runConfig connects to a daemon's VTY socket, enters configure terminal
-// mode, executes the given commands, then exits. All commands are sent on
-// a single connection to maintain VTY node context.
-func (c *Client) runConfig(daemon string, commands []string) error {
+// runConfig executes a batch of FRR configuration commands via vtysh.
+// Commands are wrapped in "configure terminal" / "end" and piped to vtysh.
+func (c *Client) runConfig(ctx context.Context, commands []string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	sockPath := filepath.Join(c.socketDir, daemon+".vty")
-	vc, err := dialVTY(sockPath, c.timeout)
+	// Build config block: configure terminal → commands → end.
+	lines := make([]string, 0, len(commands)+2)
+	lines = append(lines, "configure terminal")
+	lines = append(lines, commands...)
+	lines = append(lines, "end")
+
+	input := strings.Join(lines, "\n") + "\n"
+
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, c.vtyshPath, "--vty_socket", c.socketDir)
+	cmd.Stdin = strings.NewReader(input)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("frr: connect to %s: %w", daemon, err)
-	}
-	defer vc.close()
-
-	// Enter config mode.
-	if _, status, err := vc.execCmd("configure terminal"); err != nil {
-		return fmt.Errorf("frr: configure terminal on %s: %w", daemon, err)
-	} else if status != cmdSuccess {
-		return fmt.Errorf("frr: configure terminal on %s failed (status=%d)", daemon, status)
+		return fmt.Errorf("frr: vtysh config failed: %w\noutput: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	// Run each command.
+	// Check for error markers in output.
+	outStr := string(out)
+	if strings.Contains(outStr, "% ") {
+		return fmt.Errorf("frr: vtysh config error: %s", strings.TrimSpace(outStr))
+	}
+
 	for _, cmd := range commands {
-		output, status, err := vc.execCmd(cmd)
-		if err != nil {
-			return fmt.Errorf("frr: exec %q on %s: %w", cmd, daemon, err)
-		}
-		if status != cmdSuccess && status != cmdWarning {
-			return fmt.Errorf("frr: %q on %s failed (status=%d): %s", cmd, daemon, status, strings.TrimSpace(output))
-		}
-		c.log.Debug("VTY command OK",
-			zap.String("daemon", daemon),
-			zap.String("cmd", cmd),
-		)
+		c.log.Debug("VTY command OK", zap.String("cmd", cmd))
 	}
-
-	// Exit config mode.
-	_, _, _ = vc.execCmd("end")
 
 	return nil
 }
 
-// runShow connects to a daemon's VTY socket and executes a show command.
-func (c *Client) runShow(daemon string, command string) (string, error) {
+// runShow executes a show command via vtysh and returns the output.
+func (c *Client) runShow(ctx context.Context, command string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	sockPath := filepath.Join(c.socketDir, daemon+".vty")
-	vc, err := dialVTY(sockPath, c.timeout)
-	if err != nil {
-		return "", fmt.Errorf("frr: connect to %s: %w", daemon, err)
-	}
-	defer vc.close()
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
 
-	output, status, err := vc.execCmd(command)
+	cmd := exec.CommandContext(ctx, c.vtyshPath, "--vty_socket", c.socketDir, "-c", command)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("frr: exec %q on %s: %w", command, daemon, err)
-	}
-	if status != cmdSuccess && status != cmdWarning {
-		return output, fmt.Errorf("frr: %q on %s failed (status=%d): %s", command, daemon, status, strings.TrimSpace(output))
+		return "", fmt.Errorf("frr: vtysh show failed: %w\noutput: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	return output, nil
+	return string(out), nil
 }

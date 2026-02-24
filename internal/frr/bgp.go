@@ -20,7 +20,7 @@ func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerI
 		fmt.Sprintf("bgp router-id %s", routerID),
 	}
 
-	if err := c.runConfig("bgpd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: configure BGP global (AS=%d, router_id=%s): %w", localAS, routerID, err)
 	}
 
@@ -39,9 +39,6 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 		zap.Uint32("hold_time", holdTime),
 	)
 
-	// We need to enter "router bgp" context. Since we may not know the local AS
-	// at this point, we use the show command to discover it, or rely on the fact
-	// that the BGP instance was already created by ConfigureBGPGlobal.
 	commands := []string{
 		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
 		fmt.Sprintf("neighbor %s remote-as %d", addr, remoteAS),
@@ -51,7 +48,7 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 		commands = append(commands, fmt.Sprintf("neighbor %s timers %d %d", addr, keepalive, holdTime))
 	}
 
-	if err := c.runConfig("bgpd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: add BGP neighbor %s (AS=%d): %w", addr, remoteAS, err)
 	}
 	return nil
@@ -66,7 +63,7 @@ func (c *Client) RemoveNeighbor(ctx context.Context, addr string) error {
 		fmt.Sprintf("no neighbor %s", addr),
 	}
 
-	if err := c.runConfig("bgpd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: remove BGP neighbor %s: %w", addr, err)
 	}
 	return nil
@@ -89,7 +86,7 @@ func (c *Client) ActivateNeighborAFI(ctx context.Context, addr string, afi strin
 		"exit-address-family",
 	}
 
-	if err := c.runConfig("bgpd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: activate AFI %s for neighbor %s: %w", afiName, addr, err)
 	}
 	return nil
@@ -112,7 +109,7 @@ func (c *Client) AdvertiseNetwork(ctx context.Context, prefix string, afi string
 		"exit-address-family",
 	}
 
-	if err := c.runConfig("bgpd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: advertise network %s (afi=%s): %w", prefix, afiName, err)
 	}
 	return nil
@@ -134,18 +131,14 @@ func (c *Client) WithdrawNetwork(ctx context.Context, prefix string, afi string)
 		"exit-address-family",
 	}
 
-	if err := c.runConfig("bgpd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: withdraw network %s (afi=%s): %w", prefix, afiName, err)
 	}
 	return nil
 }
 
 // getLocalAS returns the cached local AS or 0 if not yet known.
-// The reconciler calls ConfigureBGPGlobal first which sets up the BGP instance.
-// Subsequent calls just need to enter the existing "router bgp" context.
 func (c *Client) getLocalAS(_ context.Context) uint32 {
-	// The local AS is passed through the reconciler's BGPGlobalConfig.
-	// We store it after the first ConfigureBGPGlobal call.
 	return c.localAS
 }
 

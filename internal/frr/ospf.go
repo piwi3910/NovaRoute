@@ -7,14 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// EnableOSPFInterface enables OSPF on the specified interface within the given
-// area. Parameters:
-//   - ifaceName: the network interface name (e.g. "eth0")
-//   - areaID: the OSPF area ID in dotted notation (e.g. "0.0.0.0")
-//   - passive: whether the interface should be passive (no OSPF hellos sent)
-//   - cost: the OSPF interface cost (0 means use default)
-//   - hello: the hello interval in seconds (0 means use default)
-//   - dead: the dead interval in seconds (0 means use default)
+// EnableOSPFInterface enables OSPF on the specified interface within the given area.
 func (c *Client) EnableOSPFInterface(ctx context.Context, ifaceName, areaID string, passive bool, cost, hello, dead uint32) error {
 	c.log.Info("enabling OSPF interface",
 		zap.String("interface", ifaceName),
@@ -25,7 +18,6 @@ func (c *Client) EnableOSPFInterface(ctx context.Context, ifaceName, areaID stri
 		zap.Uint32("dead", dead),
 	)
 
-	// Configure OSPF on the interface using interface-level commands.
 	commands := []string{
 		fmt.Sprintf("interface %s", ifaceName),
 		fmt.Sprintf("ip ospf area %s", areaID),
@@ -43,7 +35,6 @@ func (c *Client) EnableOSPFInterface(ctx context.Context, ifaceName, areaID stri
 
 	commands = append(commands, "exit")
 
-	// If passive, also configure it in the router ospf context.
 	if passive {
 		commands = append(commands,
 			"router ospf",
@@ -51,7 +42,7 @@ func (c *Client) EnableOSPFInterface(ctx context.Context, ifaceName, areaID stri
 		)
 	}
 
-	if err := c.runConfig("ospfd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: enable OSPF on %s (area=%s): %w", ifaceName, areaID, err)
 	}
 	return nil
@@ -72,7 +63,7 @@ func (c *Client) DisableOSPFInterface(ctx context.Context, ifaceName, areaID str
 		fmt.Sprintf("no passive-interface %s", ifaceName),
 	}
 
-	if err := c.runConfig("ospfd", commands); err != nil {
+	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: disable OSPF on %s (area=%s): %w", ifaceName, areaID, err)
 	}
 	return nil

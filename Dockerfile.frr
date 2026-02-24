@@ -1,7 +1,7 @@
-# Custom FRR image with gRPC northbound support.
-# The official quay.io/frrouting/frr images do not include the gRPC module.
+# Custom FRR image with BFD support and optimised for NovaRoute sidecar use.
+# NovaRoute controls FRR via vtysh over Unix VTY sockets.
 
-# Stage 1: Build FRR from source with --enable-grpc
+# Stage 1: Build FRR from source
 FROM debian:bookworm-slim AS builder
 
 ARG FRR_VERSION=frr-10.5.1
@@ -15,8 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpam0g-dev libcap-dev libelf-dev libunwind-dev \
     libsnmp-dev libsqlite3-dev \
     protobuf-c-compiler libprotobuf-c-dev \
-    libgrpc++-dev libgrpc-dev protobuf-compiler-grpc \
-    libprotobuf-dev libprotoc-dev protobuf-compiler \
     cmake libpcre2-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -59,7 +57,6 @@ RUN ./bootstrap.sh \
         --enable-user=frr \
         --enable-group=frr \
         --enable-vty-group=frrvty \
-        --enable-grpc \
         --enable-fpm \
         --with-pkg-git-version \
         --disable-doc \
@@ -75,8 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini iproute2 \
     libjson-c5 libc-ares2 libreadline8 libcap2 \
     libpam0g libsnmp40 libsqlite3-0 libelf1 libunwind8 \
-    libprotobuf-c1 libprotobuf32 \
-    libgrpc++1.51 libgrpc29 \
+    libprotobuf-c1 \
     libpcre2-8-0 \
     python3 \
     && rm -rf /var/lib/apt/lists/*

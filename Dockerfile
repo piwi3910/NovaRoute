@@ -19,7 +19,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/novaroutectl ./cm
 # Stage 2: Minimal runtime image
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata \
+    && apk add --no-cache \
+       --repository https://dl-cdn.alpinelinux.org/alpine/v3.21/main \
+       --repository https://dl-cdn.alpinelinux.org/alpine/v3.21/community \
+       frr
 
 # Create the default socket directory.
 RUN mkdir -p /run/novaroute /etc/novaroute
