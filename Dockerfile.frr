@@ -1,0 +1,118 @@
+# Custom FRR image with gRPC northbound support.
+# The official quay.io/frrouting/frr images do not include the gRPC module.
+
+# Stage 1: Build FRR from source with --enable-grpc
+FROM debian:bookworm-slim AS builder
+
+ARG FRR_VERSION=frr-10.5.1
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git autoconf automake libtool make build-essential \
+    pkg-config bison flex gawk texinfo \
+    python3-dev python3-sphinx python3-pytest \
+    libjson-c-dev libc-ares-dev libreadline-dev \
+    libpam0g-dev libcap-dev libelf-dev libunwind-dev \
+    libsnmp-dev libsqlite3-dev \
+    protobuf-c-compiler libprotobuf-c-dev \
+    libgrpc++-dev libgrpc-dev protobuf-compiler-grpc \
+    libprotobuf-dev libprotoc-dev protobuf-compiler \
+    cmake libpcre2-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build libyang (FRR requires >= 2.1.128).
+# Install to /usr/local so we can COPY it cleanly in stage 2.
+ARG LIBYANG_VERSION=v2.1.148
+RUN git clone --depth 1 --branch ${LIBYANG_VERSION} \
+        https://github.com/CESNET/libyang.git /tmp/libyang \
+    && cd /tmp/libyang \
+    && cmake -B build \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=ON \
+    && cmake --build build -j$(nproc) \
+    && cmake --install build \
+    && ldconfig \
+    && rm -rf /tmp/libyang
+
+# Build FRR with gRPC.
+RUN git clone --branch ${FRR_VERSION} --depth 1 \
+        https://github.com/FRRouting/frr.git /tmp/frr
+
+WORKDIR /tmp/frr
+RUN ./bootstrap.sh \
+    && PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH" \
+       ./configure \
+        --prefix=/usr \
+        --includedir=/usr/include \
+        --bindir=/usr/bin \
+        --sbindir=/usr/lib/frr \
+        --libdir=/usr/lib/frr \
+        --libexecdir=/usr/lib/frr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --with-moduledir=/usr/lib/frr/modules \
+        --enable-configfile-mask=0640 \
+        --enable-logfile-mask=0640 \
+        --enable-multipath=64 \
+        --enable-user=frr \
+        --enable-group=frr \
+        --enable-vty-group=frrvty \
+        --enable-grpc \
+        --enable-fpm \
+        --with-pkg-git-version \
+        --disable-doc \
+    && make -j$(nproc) \
+    && make DESTDIR=/tmp/frr-install install
+
+# Stage 2: Runtime image
+FROM debian:bookworm-slim
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini iproute2 \
+    libjson-c5 libc-ares2 libreadline8 libcap2 \
+    libpam0g libsnmp40 libsqlite3-0 libelf1 libunwind8 \
+    libprotobuf-c1 libprotobuf32 \
+    libgrpc++1.51 libgrpc29 \
+    libpcre2-8-0 \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install libyang runtime libs.
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+RUN ldconfig
+
+# Install FRR.
+COPY --from=builder /tmp/frr-install/ /
+
+# Create frr user/group.
+RUN addgroup --system frr \
+    && addgroup --system frrvty \
+    && adduser --system --ingroup frr --home /var/run/frr \
+        --gecos "FRR suite" --shell /bin/false frr \
+    && usermod -aG frrvty frr
+
+# Create required directories.
+RUN mkdir -p /var/run/frr /var/log/frr /etc/frr \
+    && chown -R frr:frr /var/run/frr /var/log/frr /etc/frr \
+    && install -m 640 -o frr -g frr /dev/null /etc/frr/frr.conf \
+    && install -m 640 -o frr -g frr /dev/null /etc/frr/vtysh.conf
+
+# Create docker-start script (not included in make install).
+RUN printf '#!/bin/bash\n\
+if [ -r "/lib/lsb/init-functions" ]; then\n\
+    . /lib/lsb/init-functions\n\
+else\n\
+    log_success_msg() { echo "$@"; }\n\
+    log_warning_msg() { echo "$@" >&2; }\n\
+    log_failure_msg() { echo "$@" >&2; }\n\
+fi\n\
+source /usr/lib/frr/frrcommon.sh\n\
+/usr/lib/frr/watchfrr $(daemon_list)\n' > /usr/lib/frr/docker-start \
+    && chmod 755 /usr/lib/frr/docker-start
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/lib/frr/docker-start"]
