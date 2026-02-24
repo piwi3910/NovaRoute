@@ -91,7 +91,7 @@ data:
     # Options for the daemons.
     mgmtd_options="--log syslog informational"
     zebra_options="-A 127.0.0.1 -s 90000000"
-    bgpd_options="-A 127.0.0.1"
+    bgpd_options="-A 127.0.0.1 -p 0"
     ospfd_options="-A 127.0.0.1"
     bfdd_options="-A 127.0.0.1"
 
