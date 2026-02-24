@@ -55,9 +55,7 @@ func (m *mockVTYDaemon) serve(t *testing.T) {
 func (m *mockVTYDaemon) handleConn(conn net.Conn) {
 	defer conn.Close()
 
-	// Send initial banner + VTY marker.
-	sendMarker(conn, "Mock FRR Daemon\n", cmdSuccess)
-
+	// Unix VTY sockets do NOT send a banner — the daemon just waits for commands.
 	buf := make([]byte, 4096)
 	for {
 		n, err := conn.Read(buf)
@@ -182,16 +180,8 @@ func TestGetVersion(t *testing.T) {
 		}
 		defer conn.Close()
 
-		// Banner.
-		sendMarker(conn, "", cmdSuccess)
-
+		// Unix VTY: no banner, no enable. First command is "show version".
 		buf := make([]byte, 4096)
-
-		// Read "enable".
-		conn.Read(buf)
-		sendMarker(conn, "", cmdSuccess)
-
-		// Read "show version".
 		conn.Read(buf)
 		sendMarker(conn, "FRRouting 10.5.1 (Mock)\n  running on Linux\n", cmdSuccess)
 	}()

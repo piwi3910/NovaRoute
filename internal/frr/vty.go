@@ -26,34 +26,16 @@ type vtyConn struct {
 	timeout time.Duration
 }
 
-// dialVTY connects to an FRR daemon's VTY socket and enters enable mode.
+// dialVTY connects to an FRR daemon's VTY Unix socket.
+// Unlike telnet VTY (TCP), Unix socket VTY connections do not receive a
+// banner and are already in privileged mode — no "enable" is needed.
 func dialVTY(socketPath string, timeout time.Duration) (*vtyConn, error) {
 	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", socketPath, err)
 	}
 
-	vc := &vtyConn{conn: conn, timeout: timeout}
-
-	// Set deadline for the initial banner read.
-	conn.SetDeadline(time.Now().Add(timeout))
-
-	// Read initial banner/prompt from daemon.
-	if _, _, err := vc.readResponse(); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("read banner from %s: %w", socketPath, err)
-	}
-
-	// Enter privileged mode.
-	if _, status, err := vc.execCmd("enable"); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("enable on %s: %w", socketPath, err)
-	} else if status != cmdSuccess {
-		conn.Close()
-		return nil, fmt.Errorf("enable failed on %s (status=%d)", socketPath, status)
-	}
-
-	return vc, nil
+	return &vtyConn{conn: conn, timeout: timeout}, nil
 }
 
 // execCmd sends a command and returns the output and status code.
