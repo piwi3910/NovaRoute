@@ -12,7 +12,7 @@ func TestNewReconciler(t *testing.T) {
 	logger := zap.NewNop()
 	store := intent.NewStore(logger)
 
-	r := NewReconciler(store, nil, logger)
+	r := NewReconciler(store, nil, logger, nil)
 	if r == nil {
 		t.Fatal("expected non-nil Reconciler")
 	}
@@ -42,7 +42,7 @@ func TestNewReconciler(t *testing.T) {
 func TestNewReconcilerNilLogger(t *testing.T) {
 	store := intent.NewStore(nil)
 
-	r := NewReconciler(store, nil, nil)
+	r := NewReconciler(store, nil, nil, nil)
 	if r == nil {
 		t.Fatal("expected non-nil Reconciler")
 	}
@@ -379,7 +379,7 @@ func TestOSPFEqual(t *testing.T) {
 func TestTriggerReconcile(t *testing.T) {
 	logger := zap.NewNop()
 	store := intent.NewStore(logger)
-	r := NewReconciler(store, nil, logger)
+	r := NewReconciler(store, nil, logger, nil)
 
 	// First trigger should succeed (buffered channel of size 1).
 	r.TriggerReconcile()
@@ -407,7 +407,7 @@ func TestTriggerReconcile(t *testing.T) {
 func TestApplyIntentUnknownType(t *testing.T) {
 	logger := zap.NewNop()
 	store := intent.NewStore(logger)
-	r := NewReconciler(store, nil, logger)
+	r := NewReconciler(store, nil, logger, nil)
 
 	err := r.ApplyIntent(nil, "unknown", nil)
 	if err == nil {
@@ -418,7 +418,7 @@ func TestApplyIntentUnknownType(t *testing.T) {
 func TestApplyIntentWrongType(t *testing.T) {
 	logger := zap.NewNop()
 	store := intent.NewStore(logger)
-	r := NewReconciler(store, nil, logger)
+	r := NewReconciler(store, nil, logger, nil)
 
 	// Pass a string instead of *intent.PeerIntent.
 	err := r.ApplyIntent(nil, "peer", "not-a-peer")
@@ -445,7 +445,7 @@ func TestApplyIntentWrongType(t *testing.T) {
 func TestRemoveIntentUnknownType(t *testing.T) {
 	logger := zap.NewNop()
 	store := intent.NewStore(logger)
-	r := NewReconciler(store, nil, logger)
+	r := NewReconciler(store, nil, logger, nil)
 
 	err := r.RemoveIntent(nil, "unknown", "key")
 	if err == nil {
@@ -456,7 +456,7 @@ func TestRemoveIntentUnknownType(t *testing.T) {
 func TestRemoveIntentNotFound(t *testing.T) {
 	logger := zap.NewNop()
 	store := intent.NewStore(logger)
-	r := NewReconciler(store, nil, logger)
+	r := NewReconciler(store, nil, logger, nil)
 
 	err := r.RemoveIntent(nil, "peer", "10.0.0.99")
 	if err == nil {

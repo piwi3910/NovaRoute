@@ -4,761 +4,485 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
-
-	frr "github.com/piwi3910/NovaRoute/api/frr"
-	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/test/bufconn"
 )
 
-const bufSize = 1024 * 1024
-
-// mockNorthboundServer is a test implementation of the FRR northbound gRPC server.
-// It tracks all calls made to it and allows configuring failure behavior.
-type mockNorthboundServer struct {
-	frr.UnimplementedNorthboundServer
-
-	mu             sync.Mutex
-	nextCandidate  uint32
-	edits          []*frr.EditCandidateRequest
-	commits        []*frr.CommitRequest
-	deletedCandIDs []uint32
-
-	// Configuration for failure injection.
-	failCommit         bool
-	failEditCandidate  bool
-	failCreateCandidate bool
+// mockVTYDaemon simulates an FRR daemon's VTY Unix socket.
+// It accepts one connection, reads commands, and responds with the VTY protocol.
+type mockVTYDaemon struct {
+	mu       sync.Mutex
+	commands []string // All commands received.
+	listener net.Listener
 }
 
-func newMockServer() *mockNorthboundServer {
-	return &mockNorthboundServer{
-		nextCandidate: 1,
-	}
-}
-
-func (m *mockNorthboundServer) GetCapabilities(_ context.Context, _ *frr.GetCapabilitiesRequest) (*frr.GetCapabilitiesResponse, error) {
-	return &frr.GetCapabilitiesResponse{
-		FrrVersion: "10.0-NovaRoute-test",
-	}, nil
-}
-
-func (m *mockNorthboundServer) CreateCandidate(_ context.Context, _ *frr.CreateCandidateRequest) (*frr.CreateCandidateResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.failCreateCandidate {
-		return nil, fmt.Errorf("mock: CreateCandidate failed")
-	}
-
-	id := m.nextCandidate
-	m.nextCandidate++
-	return &frr.CreateCandidateResponse{
-		CandidateId: id,
-	}, nil
-}
-
-func (m *mockNorthboundServer) DeleteCandidate(_ context.Context, req *frr.DeleteCandidateRequest) (*frr.DeleteCandidateResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.deletedCandIDs = append(m.deletedCandIDs, req.GetCandidateId())
-	return &frr.DeleteCandidateResponse{}, nil
-}
-
-func (m *mockNorthboundServer) EditCandidate(_ context.Context, req *frr.EditCandidateRequest) (*frr.EditCandidateResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.failEditCandidate {
-		return nil, fmt.Errorf("mock: EditCandidate failed")
-	}
-
-	m.edits = append(m.edits, req)
-	return &frr.EditCandidateResponse{}, nil
-}
-
-func (m *mockNorthboundServer) Commit(_ context.Context, req *frr.CommitRequest) (*frr.CommitResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.failCommit {
-		return nil, fmt.Errorf("mock: Commit failed")
-	}
-
-	m.commits = append(m.commits, req)
-	return &frr.CommitResponse{
-		TransactionId: 100,
-	}, nil
-}
-
-func (m *mockNorthboundServer) getEdits() []*frr.EditCandidateRequest {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]*frr.EditCandidateRequest, len(m.edits))
-	copy(result, m.edits)
-	return result
-}
-
-func (m *mockNorthboundServer) getCommits() []*frr.CommitRequest {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]*frr.CommitRequest, len(m.commits))
-	copy(result, m.commits)
-	return result
-}
-
-func (m *mockNorthboundServer) getDeletedCandIDs() []uint32 {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]uint32, len(m.deletedCandIDs))
-	copy(result, m.deletedCandIDs)
-	return result
-}
-
-// setupTest creates a mock FRR server, an in-memory gRPC connection via bufconn,
-// and returns a Client connected to it along with the mock server for assertions.
-func setupTest(t *testing.T) (*Client, *mockNorthboundServer) {
+// newMockVTYDaemon creates a mock VTY daemon listening on a Unix socket.
+func newMockVTYDaemon(t *testing.T, dir, name string) *mockVTYDaemon {
 	t.Helper()
 
-	mock := newMockServer()
-	lis := bufconn.Listen(bufSize)
+	sockPath := filepath.Join(dir, name+".vty")
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen on %s: %v", sockPath, err)
+	}
 
-	srv := grpc.NewServer()
-	frr.RegisterNorthboundServer(srv, mock)
-
-	go func() {
-		if err := srv.Serve(lis); err != nil {
-			// Server stopped, expected during test cleanup.
-		}
-	}()
+	m := &mockVTYDaemon{listener: listener}
+	go m.serve(t)
 
 	t.Cleanup(func() {
-		srv.GracefulStop()
-		lis.Close()
+		listener.Close()
 	})
 
-	conn, err := grpc.NewClient(
-		"passthrough:///bufconn",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return lis.Dial()
-		}),
-	)
-	if err != nil {
-		t.Fatalf("failed to create bufconn client: %v", err)
-	}
-
-	t.Cleanup(func() {
-		conn.Close()
-	})
-
-	logger := zap.NewNop()
-	client := &Client{
-		nb:   frr.NewNorthboundClient(conn),
-		conn: conn,
-		log:  logger,
-	}
-
-	return client, mock
+	return m
 }
 
-// findUpdatePath searches the recorded edits for a PathValue with the given path.
-func findUpdatePath(edits []*frr.EditCandidateRequest, path string) *frr.PathValue {
-	for _, edit := range edits {
-		for _, u := range edit.GetUpdate() {
-			if u.GetPath() == path {
-				return u
-			}
+func (m *mockVTYDaemon) serve(t *testing.T) {
+	t.Helper()
+
+	for {
+		conn, err := m.listener.Accept()
+		if err != nil {
+			return // Listener closed.
 		}
+		go m.handleConn(conn)
 	}
-	return nil
 }
 
-// findDeletePath searches the recorded edits for a delete PathValue with the given path.
-func findDeletePath(edits []*frr.EditCandidateRequest, path string) *frr.PathValue {
-	for _, edit := range edits {
-		for _, d := range edit.GetDelete() {
-			if d.GetPath() == path {
-				return d
-			}
+func (m *mockVTYDaemon) handleConn(conn net.Conn) {
+	defer conn.Close()
+
+	// Send initial banner + VTY marker.
+	sendMarker(conn, "Mock FRR Daemon\n", cmdSuccess)
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			return
 		}
+
+		// Commands are null-terminated.
+		cmd := string(buf[:n-1]) // Strip null terminator.
+
+		m.mu.Lock()
+		m.commands = append(m.commands, cmd)
+		m.mu.Unlock()
+
+		// Respond with success marker.
+		sendMarker(conn, "", cmdSuccess)
 	}
-	return nil
 }
 
-// --- applyChanges tests ---
+func (m *mockVTYDaemon) getCommands() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.commands))
+	copy(result, m.commands)
+	return result
+}
 
-func TestApplyChangesSuccess(t *testing.T) {
-	client, mock := setupTest(t)
-	ctx := context.Background()
+// sendMarker sends output followed by the 4-byte VTY status marker.
+func sendMarker(conn net.Conn, output string, status byte) {
+	data := append([]byte(output), 0, status, 0, 0)
+	conn.Write(data)
+}
 
-	updates := []*frr.PathValue{
-		{Path: "/test/path", Value: "value1"},
-	}
+// setupVTYTest creates a temp directory with mock VTY daemons and returns a Client.
+// Uses a short base path to avoid Unix socket path length limits (104 bytes on macOS).
+func setupVTYTest(t *testing.T, daemons ...string) (*Client, map[string]*mockVTYDaemon) {
+	t.Helper()
 
-	err := client.applyChanges(ctx, updates, nil)
+	dir, err := os.MkdirTemp("/tmp", "vty")
 	if err != nil {
-		t.Fatalf("applyChanges failed: %v", err)
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+
+	mocks := make(map[string]*mockVTYDaemon, len(daemons))
+
+	for _, d := range daemons {
+		mocks[d] = newMockVTYDaemon(t, dir, d)
 	}
 
-	// Verify the full transaction flow: create -> edit -> commit -> delete.
-	edits := mock.getEdits()
-	if len(edits) != 1 {
-		t.Fatalf("expected 1 edit, got %d", len(edits))
-	}
-	if edits[0].GetCandidateId() != 1 {
-		t.Errorf("expected candidate_id=1, got %d", edits[0].GetCandidateId())
-	}
-	if len(edits[0].GetUpdate()) != 1 {
-		t.Errorf("expected 1 update, got %d", len(edits[0].GetUpdate()))
-	}
-	if edits[0].GetUpdate()[0].GetPath() != "/test/path" {
-		t.Errorf("expected path /test/path, got %s", edits[0].GetUpdate()[0].GetPath())
-	}
+	client := NewClient(dir, nil)
+	// Use short timeout for tests.
+	client.timeout = 2 * 1e9 // 2 seconds
 
-	commits := mock.getCommits()
-	if len(commits) != 1 {
-		t.Fatalf("expected 1 commit, got %d", len(commits))
-	}
-	if commits[0].GetPhase() != frr.CommitRequest_ALL {
-		t.Errorf("expected commit phase ALL, got %v", commits[0].GetPhase())
-	}
+	return client, mocks
+}
 
-	deletedIDs := mock.getDeletedCandIDs()
-	if len(deletedIDs) != 1 {
-		t.Fatalf("expected 1 candidate deleted, got %d", len(deletedIDs))
+// --- Client tests ---
+
+func TestNewClient(t *testing.T) {
+	dir := t.TempDir()
+	client := NewClient(dir, nil)
+	if client == nil {
+		t.Fatal("expected non-nil client")
 	}
-	if deletedIDs[0] != 1 {
-		t.Errorf("expected deleted candidate_id=1, got %d", deletedIDs[0])
+	if client.socketDir != dir {
+		t.Errorf("socketDir = %q, want %q", client.socketDir, dir)
 	}
 }
 
-func TestApplyChangesEmptyNoOp(t *testing.T) {
-	client, mock := setupTest(t)
-	ctx := context.Background()
+func TestIsReady(t *testing.T) {
+	dir := t.TempDir()
+	client := NewClient(dir, nil)
 
-	err := client.applyChanges(ctx, nil, nil)
-	if err != nil {
-		t.Fatalf("applyChanges with empty changes should not error: %v", err)
+	// No sockets yet.
+	if client.IsReady() {
+		t.Error("expected not ready when no sockets")
 	}
 
-	edits := mock.getEdits()
-	if len(edits) != 0 {
-		t.Errorf("expected 0 edits for empty changes, got %d", len(edits))
-	}
-}
-
-func TestApplyChangesRollbackOnCommitFailure(t *testing.T) {
-	client, mock := setupTest(t)
-	ctx := context.Background()
-
-	mock.mu.Lock()
-	mock.failCommit = true
-	mock.mu.Unlock()
-
-	updates := []*frr.PathValue{
-		{Path: "/test/fail", Value: "value"},
+	// Create fake socket files.
+	for _, name := range []string{"zebra.vty", "bgpd.vty"} {
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
 	}
 
-	err := client.applyChanges(ctx, updates, nil)
-	if err == nil {
-		t.Fatal("expected error on commit failure, got nil")
-	}
-
-	// The candidate should still be cleaned up (deleted) even on failure.
-	deletedIDs := mock.getDeletedCandIDs()
-	if len(deletedIDs) != 1 {
-		t.Fatalf("expected candidate to be deleted on rollback, got %d deletes", len(deletedIDs))
-	}
-	if deletedIDs[0] != 1 {
-		t.Errorf("expected deleted candidate_id=1, got %d", deletedIDs[0])
+	if !client.IsReady() {
+		t.Error("expected ready when socket files exist")
 	}
 }
 
-func TestApplyChangesRollbackOnEditFailure(t *testing.T) {
-	client, mock := setupTest(t)
-	ctx := context.Background()
-
-	mock.mu.Lock()
-	mock.failEditCandidate = true
-	mock.mu.Unlock()
-
-	updates := []*frr.PathValue{
-		{Path: "/test/edit-fail", Value: "value"},
-	}
-
-	err := client.applyChanges(ctx, updates, nil)
-	if err == nil {
-		t.Fatal("expected error on edit failure, got nil")
-	}
-
-	// Candidate should still be cleaned up.
-	deletedIDs := mock.getDeletedCandIDs()
-	if len(deletedIDs) != 1 {
-		t.Fatalf("expected candidate to be deleted on edit failure, got %d deletes", len(deletedIDs))
-	}
-
-	// No commits should have been attempted.
-	commits := mock.getCommits()
-	if len(commits) != 0 {
-		t.Errorf("expected 0 commits on edit failure, got %d", len(commits))
+func TestCloseNoOp(t *testing.T) {
+	client := NewClient(t.TempDir(), nil)
+	if err := client.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
 	}
 }
 
 func TestGetVersion(t *testing.T) {
-	client, _ := setupTest(t)
-	ctx := context.Background()
+	client, mocks := setupVTYTest(t, "zebra")
 
+	// Override the mock to return version in the show command response.
+	// We need to close the default mock and create a custom one.
+	mocks["zebra"].listener.Close()
+
+	dir := client.socketDir
+	sockPath := filepath.Join(dir, "zebra.vty")
+	os.Remove(sockPath)
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Banner.
+		sendMarker(conn, "", cmdSuccess)
+
+		buf := make([]byte, 4096)
+
+		// Read "enable".
+		conn.Read(buf)
+		sendMarker(conn, "", cmdSuccess)
+
+		// Read "show version".
+		conn.Read(buf)
+		sendMarker(conn, "FRRouting 10.5.1 (Mock)\n  running on Linux\n", cmdSuccess)
+	}()
+
+	ctx := context.Background()
 	version, err := client.GetVersion(ctx)
 	if err != nil {
-		t.Fatalf("GetVersion failed: %v", err)
+		t.Fatalf("GetVersion error: %v", err)
 	}
-	if version != "10.0-NovaRoute-test" {
-		t.Errorf("expected version '10.0-NovaRoute-test', got '%s'", version)
+	if version != "10.5.1 (Mock)" {
+		t.Errorf("GetVersion = %q, want %q", version, "10.5.1 (Mock)")
 	}
 }
 
 // --- BGP tests ---
 
-func TestBGPConfigureGlobal(t *testing.T) {
-	client, mock := setupTest(t)
+func TestConfigureBGPGlobal(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
 
 	err := client.ConfigureBGPGlobal(ctx, 65000, "10.0.0.1")
 	if err != nil {
-		t.Fatalf("ConfigureBGPGlobal failed: %v", err)
+		t.Fatalf("ConfigureBGPGlobal error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	asUpdate := findUpdatePath(edits, bgpGlobalAS)
-	if asUpdate == nil {
-		t.Fatal("expected update for bgpGlobalAS path")
-	}
-	if asUpdate.GetValue() != "65000" {
-		t.Errorf("expected AS value '65000', got '%s'", asUpdate.GetValue())
-	}
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "configure terminal")
+	assertContainsCmd(t, cmds, "router bgp 65000")
+	assertContainsCmd(t, cmds, "bgp router-id 10.0.0.1")
 
-	ridUpdate := findUpdatePath(edits, bgpGlobalRouterID)
-	if ridUpdate == nil {
-		t.Fatal("expected update for bgpGlobalRouterID path")
-	}
-	if ridUpdate.GetValue() != "10.0.0.1" {
-		t.Errorf("expected router-id '10.0.0.1', got '%s'", ridUpdate.GetValue())
+	if client.localAS != 65000 {
+		t.Errorf("localAS = %d, want 65000", client.localAS)
 	}
 }
 
-func TestBGPAddNeighbor(t *testing.T) {
-	client, mock := setupTest(t)
+func TestAddNeighbor(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
+	client.localAS = 65000
 
 	err := client.AddNeighbor(ctx, "192.168.1.1", 65001, "external", 30, 90)
 	if err != nil {
-		t.Fatalf("AddNeighbor failed: %v", err)
+		t.Fatalf("AddNeighbor error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	neighborBase := BGPNeighborPath("192.168.1.1")
-
-	asUpdate := findUpdatePath(edits, neighborBase+bgpNeighborRemoteAS)
-	if asUpdate == nil {
-		t.Fatal("expected update for neighbor remote-as")
-	}
-	if asUpdate.GetValue() != "65001" {
-		t.Errorf("expected remote-as '65001', got '%s'", asUpdate.GetValue())
-	}
-
-	peerTypeUpdate := findUpdatePath(edits, neighborBase+bgpNeighborPeerType)
-	if peerTypeUpdate == nil {
-		t.Fatal("expected update for neighbor peer-type")
-	}
-	if peerTypeUpdate.GetValue() != "external" {
-		t.Errorf("expected peer-type 'external', got '%s'", peerTypeUpdate.GetValue())
-	}
-
-	enabledUpdate := findUpdatePath(edits, neighborBase+bgpNeighborEnabled)
-	if enabledUpdate == nil {
-		t.Fatal("expected update for neighbor enabled")
-	}
-	if enabledUpdate.GetValue() != "true" {
-		t.Errorf("expected enabled 'true', got '%s'", enabledUpdate.GetValue())
-	}
-
-	keepaliveUpdate := findUpdatePath(edits, neighborBase+bgpNeighborTimersKeepalive)
-	if keepaliveUpdate == nil {
-		t.Fatal("expected update for neighbor keepalive")
-	}
-	if keepaliveUpdate.GetValue() != "30" {
-		t.Errorf("expected keepalive '30', got '%s'", keepaliveUpdate.GetValue())
-	}
-
-	holdUpdate := findUpdatePath(edits, neighborBase+bgpNeighborTimersHoldTime)
-	if holdUpdate == nil {
-		t.Fatal("expected update for neighbor hold-time")
-	}
-	if holdUpdate.GetValue() != "90" {
-		t.Errorf("expected hold-time '90', got '%s'", holdUpdate.GetValue())
-	}
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "router bgp 65000")
+	assertContainsCmd(t, cmds, "neighbor 192.168.1.1 remote-as 65001")
+	assertContainsCmd(t, cmds, "neighbor 192.168.1.1 timers 30 90")
 }
 
-func TestBGPAddNeighborDefaultTimers(t *testing.T) {
-	client, mock := setupTest(t)
+func TestAddNeighborDefaultTimers(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
+	client.localAS = 65000
 
 	err := client.AddNeighbor(ctx, "10.0.0.2", 65002, "internal", 0, 0)
 	if err != nil {
-		t.Fatalf("AddNeighbor failed: %v", err)
+		t.Fatalf("AddNeighbor error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	neighborBase := BGPNeighborPath("10.0.0.2")
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "neighbor 10.0.0.2 remote-as 65002")
 
-	// Timer paths should not be present when set to 0.
-	keepaliveUpdate := findUpdatePath(edits, neighborBase+bgpNeighborTimersKeepalive)
-	if keepaliveUpdate != nil {
-		t.Error("expected no keepalive update when value is 0")
-	}
-
-	holdUpdate := findUpdatePath(edits, neighborBase+bgpNeighborTimersHoldTime)
-	if holdUpdate != nil {
-		t.Error("expected no hold-time update when value is 0")
+	// Timer command should not be present when 0.
+	for _, cmd := range cmds {
+		if strings.Contains(cmd, "timers") {
+			t.Errorf("unexpected timers command: %s", cmd)
+		}
 	}
 }
 
-func TestBGPRemoveNeighbor(t *testing.T) {
-	client, mock := setupTest(t)
+func TestRemoveNeighbor(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
+	client.localAS = 65000
 
 	err := client.RemoveNeighbor(ctx, "192.168.1.1")
 	if err != nil {
-		t.Fatalf("RemoveNeighbor failed: %v", err)
+		t.Fatalf("RemoveNeighbor error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	neighborBase := BGPNeighborPath("192.168.1.1")
-
-	del := findDeletePath(edits, neighborBase)
-	if del == nil {
-		t.Fatal("expected delete for neighbor path")
-	}
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "no neighbor 192.168.1.1")
 }
 
-func TestBGPActivateNeighborAFI(t *testing.T) {
-	client, mock := setupTest(t)
+func TestActivateNeighborAFI(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
+	client.localAS = 65000
 
-	err := client.ActivateNeighborAFI(ctx, "192.168.1.1", "ipv4")
+	err := client.ActivateNeighborAFI(ctx, "192.168.1.1", "ipv4-unicast")
 	if err != nil {
-		t.Fatalf("ActivateNeighborAFI failed: %v", err)
+		t.Fatalf("ActivateNeighborAFI error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	afiPath := BGPNeighborAFIPath("192.168.1.1", bgpAFIIPv4Unicast)
-
-	enabledUpdate := findUpdatePath(edits, afiPath+bgpNeighborAFIEnabled)
-	if enabledUpdate == nil {
-		t.Fatal("expected update for neighbor AFI enabled path")
-	}
-	if enabledUpdate.GetValue() != "true" {
-		t.Errorf("expected enabled 'true', got '%s'", enabledUpdate.GetValue())
-	}
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "address-family ipv4 unicast")
+	assertContainsCmd(t, cmds, "neighbor 192.168.1.1 activate")
+	assertContainsCmd(t, cmds, "exit-address-family")
 }
 
-func TestBGPActivateNeighborAFIIPv6(t *testing.T) {
-	client, mock := setupTest(t)
+func TestAdvertiseNetwork(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
-
-	err := client.ActivateNeighborAFI(ctx, "fd00::1", "ipv6-unicast")
-	if err != nil {
-		t.Fatalf("ActivateNeighborAFI failed: %v", err)
-	}
-
-	edits := mock.getEdits()
-	afiPath := BGPNeighborAFIPath("fd00::1", bgpAFIIPv6Unicast)
-
-	enabledUpdate := findUpdatePath(edits, afiPath+bgpNeighborAFIEnabled)
-	if enabledUpdate == nil {
-		t.Fatal("expected update for neighbor AFI enabled path (IPv6)")
-	}
-}
-
-func TestBGPAdvertiseNetwork(t *testing.T) {
-	client, mock := setupTest(t)
-	ctx := context.Background()
+	client.localAS = 65000
 
 	err := client.AdvertiseNetwork(ctx, "10.0.0.0/24", "ipv4")
 	if err != nil {
-		t.Fatalf("AdvertiseNetwork failed: %v", err)
+		t.Fatalf("AdvertiseNetwork error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	networkPath := BGPNetworkPath("10.0.0.0/24", bgpAFIIPv4Unicast)
-
-	update := findUpdatePath(edits, networkPath)
-	if update == nil {
-		t.Fatal("expected update for network path")
-	}
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "address-family ipv4 unicast")
+	assertContainsCmd(t, cmds, "network 10.0.0.0/24")
 }
 
-func TestBGPWithdrawNetwork(t *testing.T) {
-	client, mock := setupTest(t)
+func TestWithdrawNetwork(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bgpd")
 	ctx := context.Background()
+	client.localAS = 65000
 
 	err := client.WithdrawNetwork(ctx, "10.0.0.0/24", "ipv4")
 	if err != nil {
-		t.Fatalf("WithdrawNetwork failed: %v", err)
+		t.Fatalf("WithdrawNetwork error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	networkPath := BGPNetworkPath("10.0.0.0/24", bgpAFIIPv4Unicast)
-
-	del := findDeletePath(edits, networkPath)
-	if del == nil {
-		t.Fatal("expected delete for network path")
-	}
+	cmds := mocks["bgpd"].getCommands()
+	assertContainsCmd(t, cmds, "no network 10.0.0.0/24")
 }
 
 // --- BFD tests ---
 
-func TestBFDAddPeer(t *testing.T) {
-	client, mock := setupTest(t)
+func TestAddBFDPeer(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bfdd")
 	ctx := context.Background()
 
 	err := client.AddBFDPeer(ctx, "192.168.1.1", 300, 300, 3, "eth0")
 	if err != nil {
-		t.Fatalf("AddBFDPeer failed: %v", err)
+		t.Fatalf("AddBFDPeer error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	peerBase := BFDPeerPath("192.168.1.1")
-
-	rxUpdate := findUpdatePath(edits, peerBase+bfdMinRxInterval)
-	if rxUpdate == nil {
-		t.Fatal("expected update for BFD min-rx")
-	}
-	if rxUpdate.GetValue() != "300" {
-		t.Errorf("expected min-rx '300', got '%s'", rxUpdate.GetValue())
-	}
-
-	txUpdate := findUpdatePath(edits, peerBase+bfdMinTxInterval)
-	if txUpdate == nil {
-		t.Fatal("expected update for BFD min-tx")
-	}
-	if txUpdate.GetValue() != "300" {
-		t.Errorf("expected min-tx '300', got '%s'", txUpdate.GetValue())
-	}
-
-	detectUpdate := findUpdatePath(edits, peerBase+bfdDetectMultiplier)
-	if detectUpdate == nil {
-		t.Fatal("expected update for BFD detect-multiplier")
-	}
-	if detectUpdate.GetValue() != "3" {
-		t.Errorf("expected detect-mult '3', got '%s'", detectUpdate.GetValue())
-	}
-
-	ifaceUpdate := findUpdatePath(edits, peerBase+bfdInterface)
-	if ifaceUpdate == nil {
-		t.Fatal("expected update for BFD interface")
-	}
-	if ifaceUpdate.GetValue() != "eth0" {
-		t.Errorf("expected interface 'eth0', got '%s'", ifaceUpdate.GetValue())
-	}
+	cmds := mocks["bfdd"].getCommands()
+	assertContainsCmd(t, cmds, "bfd")
+	assertContainsCmd(t, cmds, "peer 192.168.1.1 interface eth0")
+	assertContainsCmd(t, cmds, "receive-interval 300")
+	assertContainsCmd(t, cmds, "transmit-interval 300")
+	assertContainsCmd(t, cmds, "detect-multiplier 3")
 }
 
-func TestBFDAddPeerNoInterface(t *testing.T) {
-	client, mock := setupTest(t)
+func TestAddBFDPeerNoInterface(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bfdd")
 	ctx := context.Background()
 
 	err := client.AddBFDPeer(ctx, "10.0.0.1", 200, 200, 5, "")
 	if err != nil {
-		t.Fatalf("AddBFDPeer failed: %v", err)
+		t.Fatalf("AddBFDPeer error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	peerBase := BFDPeerPath("10.0.0.1")
+	cmds := mocks["bfdd"].getCommands()
+	assertContainsCmd(t, cmds, "peer 10.0.0.1")
 
-	// Interface should not be set when empty.
-	ifaceUpdate := findUpdatePath(edits, peerBase+bfdInterface)
-	if ifaceUpdate != nil {
-		t.Error("expected no interface update when interface is empty")
+	// Should not contain "interface" in the peer command.
+	for _, cmd := range cmds {
+		if strings.HasPrefix(cmd, "peer ") && strings.Contains(cmd, "interface") {
+			t.Errorf("unexpected interface in peer command: %s", cmd)
+		}
 	}
 }
 
-func TestBFDRemovePeer(t *testing.T) {
-	client, mock := setupTest(t)
+func TestRemoveBFDPeer(t *testing.T) {
+	client, mocks := setupVTYTest(t, "bfdd")
 	ctx := context.Background()
 
 	err := client.RemoveBFDPeer(ctx, "192.168.1.1")
 	if err != nil {
-		t.Fatalf("RemoveBFDPeer failed: %v", err)
+		t.Fatalf("RemoveBFDPeer error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	peerBase := BFDPeerPath("192.168.1.1")
-
-	del := findDeletePath(edits, peerBase)
-	if del == nil {
-		t.Fatal("expected delete for BFD peer path")
-	}
+	cmds := mocks["bfdd"].getCommands()
+	assertContainsCmd(t, cmds, "no peer 192.168.1.1")
 }
 
 // --- OSPF tests ---
 
 func TestOSPFEnableInterface(t *testing.T) {
-	client, mock := setupTest(t)
+	client, mocks := setupVTYTest(t, "ospfd")
 	ctx := context.Background()
 
 	err := client.EnableOSPFInterface(ctx, "eth0", "0.0.0.0", true, 10, 5, 20)
 	if err != nil {
-		t.Fatalf("EnableOSPFInterface failed: %v", err)
+		t.Fatalf("EnableOSPFInterface error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	ifacePath := OSPFInterfacePath("eth0", "0.0.0.0")
-
-	passiveUpdate := findUpdatePath(edits, ifacePath+ospfInterfacePassive)
-	if passiveUpdate == nil {
-		t.Fatal("expected update for OSPF passive")
-	}
-	if passiveUpdate.GetValue() != "true" {
-		t.Errorf("expected passive 'true', got '%s'", passiveUpdate.GetValue())
-	}
-
-	costUpdate := findUpdatePath(edits, ifacePath+ospfInterfaceCost)
-	if costUpdate == nil {
-		t.Fatal("expected update for OSPF cost")
-	}
-	if costUpdate.GetValue() != "10" {
-		t.Errorf("expected cost '10', got '%s'", costUpdate.GetValue())
-	}
-
-	helloUpdate := findUpdatePath(edits, ifacePath+ospfInterfaceHelloInterval)
-	if helloUpdate == nil {
-		t.Fatal("expected update for OSPF hello-interval")
-	}
-	if helloUpdate.GetValue() != "5" {
-		t.Errorf("expected hello '5', got '%s'", helloUpdate.GetValue())
-	}
-
-	deadUpdate := findUpdatePath(edits, ifacePath+ospfInterfaceDeadInterval)
-	if deadUpdate == nil {
-		t.Fatal("expected update for OSPF dead-interval")
-	}
-	if deadUpdate.GetValue() != "20" {
-		t.Errorf("expected dead '20', got '%s'", deadUpdate.GetValue())
-	}
+	cmds := mocks["ospfd"].getCommands()
+	assertContainsCmd(t, cmds, "interface eth0")
+	assertContainsCmd(t, cmds, "ip ospf area 0.0.0.0")
+	assertContainsCmd(t, cmds, "ip ospf cost 10")
+	assertContainsCmd(t, cmds, "ip ospf hello-interval 5")
+	assertContainsCmd(t, cmds, "ip ospf dead-interval 20")
+	assertContainsCmd(t, cmds, "passive-interface eth0")
 }
 
 func TestOSPFEnableInterfaceDefaultTimers(t *testing.T) {
-	client, mock := setupTest(t)
+	client, mocks := setupVTYTest(t, "ospfd")
 	ctx := context.Background()
 
 	err := client.EnableOSPFInterface(ctx, "eth1", "0.0.0.1", false, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("EnableOSPFInterface failed: %v", err)
+		t.Fatalf("EnableOSPFInterface error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	ifacePath := OSPFInterfacePath("eth1", "0.0.0.1")
+	cmds := mocks["ospfd"].getCommands()
+	assertContainsCmd(t, cmds, "interface eth1")
+	assertContainsCmd(t, cmds, "ip ospf area 0.0.0.1")
 
-	passiveUpdate := findUpdatePath(edits, ifacePath+ospfInterfacePassive)
-	if passiveUpdate == nil {
-		t.Fatal("expected update for OSPF passive")
-	}
-	if passiveUpdate.GetValue() != "false" {
-		t.Errorf("expected passive 'false', got '%s'", passiveUpdate.GetValue())
-	}
-
-	// Optional fields should not be present when 0.
-	costUpdate := findUpdatePath(edits, ifacePath+ospfInterfaceCost)
-	if costUpdate != nil {
-		t.Error("expected no cost update when value is 0")
+	// Cost, hello, dead should not be present when 0.
+	for _, cmd := range cmds {
+		if strings.Contains(cmd, "cost") || strings.Contains(cmd, "hello-interval") || strings.Contains(cmd, "dead-interval") {
+			t.Errorf("unexpected timer command: %s", cmd)
+		}
 	}
 
-	helloUpdate := findUpdatePath(edits, ifacePath+ospfInterfaceHelloInterval)
-	if helloUpdate != nil {
-		t.Error("expected no hello-interval update when value is 0")
-	}
-
-	deadUpdate := findUpdatePath(edits, ifacePath+ospfInterfaceDeadInterval)
-	if deadUpdate != nil {
-		t.Error("expected no dead-interval update when value is 0")
+	// Passive should not be present when false.
+	for _, cmd := range cmds {
+		if strings.Contains(cmd, "passive") {
+			t.Errorf("unexpected passive command: %s", cmd)
+		}
 	}
 }
 
 func TestOSPFDisableInterface(t *testing.T) {
-	client, mock := setupTest(t)
+	client, mocks := setupVTYTest(t, "ospfd")
 	ctx := context.Background()
 
 	err := client.DisableOSPFInterface(ctx, "eth0", "0.0.0.0")
 	if err != nil {
-		t.Fatalf("DisableOSPFInterface failed: %v", err)
+		t.Fatalf("DisableOSPFInterface error: %v", err)
 	}
 
-	edits := mock.getEdits()
-	ifacePath := OSPFInterfacePath("eth0", "0.0.0.0")
-
-	del := findDeletePath(edits, ifacePath)
-	if del == nil {
-		t.Fatal("expected delete for OSPF interface path")
-	}
+	cmds := mocks["ospfd"].getCommands()
+	assertContainsCmd(t, cmds, "no ip ospf area 0.0.0.0")
 }
 
-// --- Path helper tests ---
+// --- AFI resolution tests ---
 
-func TestBGPNeighborPath(t *testing.T) {
-	path := BGPNeighborPath("192.168.1.1")
-	expected := bgpBase + "/neighbors/neighbor[remote-address='192.168.1.1']"
-	if path != expected {
-		t.Errorf("BGPNeighborPath mismatch:\n  got:  %s\n  want: %s", path, expected)
-	}
-}
-
-func TestBGPNetworkPath(t *testing.T) {
-	path := BGPNetworkPath("10.0.0.0/24", bgpAFIIPv4Unicast)
-	expected := bgpBase + "/global/afi-safis/afi-safi[afi-safi-name='frr-routing:ipv4-unicast']/network-config[prefix='10.0.0.0/24']"
-	if path != expected {
-		t.Errorf("BGPNetworkPath mismatch:\n  got:  %s\n  want: %s", path, expected)
-	}
-}
-
-func TestBFDPeerPath(t *testing.T) {
-	path := BFDPeerPath("192.168.1.1")
-	expected := "/frr-bfdd:bfdd/bfd/sessions/single-hop[dest-addr='192.168.1.1']"
-	if path != expected {
-		t.Errorf("BFDPeerPath mismatch:\n  got:  %s\n  want: %s", path, expected)
-	}
-}
-
-func TestOSPFInterfacePath(t *testing.T) {
-	path := OSPFInterfacePath("eth0", "0.0.0.0")
-	expected := ospfBase + "/areas/area[area-id='0.0.0.0']/interfaces/interface[name='eth0']"
-	if path != expected {
-		t.Errorf("OSPFInterfacePath mismatch:\n  got:  %s\n  want: %s", path, expected)
-	}
-}
-
-func TestResolveAFI(t *testing.T) {
+func TestResolveAFICLI(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
 	}{
-		{"ipv4", bgpAFIIPv4Unicast},
-		{"ipv4-unicast", bgpAFIIPv4Unicast},
-		{"ipv6", bgpAFIIPv6Unicast},
-		{"ipv6-unicast", bgpAFIIPv6Unicast},
-		{"frr-routing:ipv4-unicast", "frr-routing:ipv4-unicast"},
+		{"ipv4", "ipv4 unicast"},
+		{"ipv4-unicast", "ipv4 unicast"},
+		{"ipv6", "ipv6 unicast"},
+		{"ipv6-unicast", "ipv6 unicast"},
 		{"custom-afi", "custom-afi"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := resolveAFI(tt.input)
+			result := resolveAFICLI(tt.input)
 			if result != tt.expected {
-				t.Errorf("resolveAFI(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("resolveAFICLI(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+// --- Connection error tests ---
+
+func TestRunConfigBadSocket(t *testing.T) {
+	client := NewClient(t.TempDir(), nil)
+	err := client.runConfig("bgpd", []string{"router bgp 65000"})
+	if err == nil {
+		t.Error("expected error connecting to nonexistent socket")
+	}
+}
+
+func TestRunShowBadSocket(t *testing.T) {
+	client := NewClient(t.TempDir(), nil)
+	_, err := client.runShow("zebra", "show version")
+	if err == nil {
+		t.Error("expected error connecting to nonexistent socket")
+	}
+}
+
+// --- Helpers ---
+
+func assertContainsCmd(t *testing.T, cmds []string, expected string) {
+	t.Helper()
+	if !slices.Contains(cmds, expected) {
+		t.Errorf("command %q not found in: %s", expected, fmt.Sprintf("%v", cmds))
 	}
 }

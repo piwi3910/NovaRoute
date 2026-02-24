@@ -3,164 +3,132 @@ package frr
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
-	frr "github.com/piwi3910/NovaRoute/api/frr"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Client wraps the FRR northbound gRPC client with connection management
-// and transactional configuration helpers.
+// Client configures FRR daemons by connecting to their VTY Unix sockets
+// and sending CLI commands. Each operation opens a fresh connection to the
+// target daemon socket, sends the commands, and disconnects.
 type Client struct {
-	nb   frr.NorthboundClient
-	conn *grpc.ClientConn
-	log  *zap.Logger
-	mu   sync.Mutex
+	socketDir string
+	timeout   time.Duration
+	log       *zap.Logger
+	mu        sync.Mutex
+	localAS   uint32 // Cached after ConfigureBGPGlobal.
 }
 
-// NewClient creates a new FRR northbound gRPC client connected to the given
-// target. The target can be a unix socket path (e.g. "unix:///var/run/frr/northbound.sock")
-// or a TCP address (e.g. "localhost:50051"). The connection uses insecure
-// credentials since FRR northbound typically runs on a local socket.
-func NewClient(target string, logger *zap.Logger) (*Client, error) {
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("frr: failed to create gRPC client to %s: %w", target, err)
+// NewClient creates a new FRR VTY client that communicates with FRR daemons
+// through their Unix sockets in the given directory (typically /run/frr).
+func NewClient(socketDir string, logger *zap.Logger) *Client {
+	if logger == nil {
+		logger = zap.NewNop()
 	}
-
-	logger.Info("connected to FRR northbound gRPC", zap.String("target", target))
-
 	return &Client{
-		nb:   frr.NewNorthboundClient(conn),
-		conn: conn,
-		log:  logger,
-	}, nil
+		socketDir: socketDir,
+		timeout:   10 * time.Second,
+		log:       logger,
+	}
 }
 
-// Close shuts down the gRPC connection.
+// Close is a no-op for the VTY client since connections are per-operation.
 func (c *Client) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
-	}
 	return nil
 }
 
-// IsConnected returns true if the underlying gRPC connection is in a ready
-// or idle state (i.e. not shut down or in a transient failure).
-func (c *Client) IsConnected() bool {
-	if c.conn == nil {
-		return false
+// IsReady checks whether the required FRR daemon sockets exist.
+func (c *Client) IsReady() bool {
+	for _, daemon := range []string{"zebra", "bgpd"} {
+		sock := filepath.Join(c.socketDir, daemon+".vty")
+		if _, err := os.Stat(sock); err != nil {
+			return false
+		}
 	}
-	state := c.conn.GetState()
-	return state == connectivity.Ready || state == connectivity.Idle
+	return true
 }
 
-// GetVersion calls GetCapabilities and returns the FRR version string.
+// GetVersion returns the FRR version by running "show version" on zebra.
 func (c *Client) GetVersion(ctx context.Context) (string, error) {
-	resp, err := c.nb.GetCapabilities(ctx, &frr.GetCapabilitiesRequest{})
+	output, err := c.runShow("zebra", "show version")
 	if err != nil {
-		return "", fmt.Errorf("frr: GetCapabilities failed: %w", err)
+		return "", fmt.Errorf("frr: get version: %w", err)
 	}
-	return resp.GetFrrVersion(), nil
+
+	for line := range strings.SplitSeq(output, "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "FRRouting "); ok {
+			return after, nil
+		}
+	}
+	return strings.TrimSpace(strings.Split(output, "\n")[0]), nil
 }
 
-// applyChanges executes a transactional configuration change using the FRR
-// northbound candidate/commit model:
-//  1. CreateCandidate() to get a candidate configuration ID
-//  2. EditCandidate() to apply the updates and deletes
-//  3. Commit() with phase ALL to atomically apply
-//  4. DeleteCandidate() to clean up
-//
-// If the commit fails, the candidate is deleted to avoid leaking resources.
-// The method is serialized with a mutex to prevent concurrent candidate
-// operations which FRR does not support on a single client.
-func (c *Client) applyChanges(ctx context.Context, updates []*frr.PathValue, deletes []*frr.PathValue) error {
+// runConfig connects to a daemon's VTY socket, enters configure terminal
+// mode, executes the given commands, then exits. All commands are sent on
+// a single connection to maintain VTY node context.
+func (c *Client) runConfig(daemon string, commands []string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if len(updates) == 0 && len(deletes) == 0 {
-		return nil
-	}
-
-	// Step 1: Create a candidate configuration.
-	createResp, err := c.nb.CreateCandidate(ctx, &frr.CreateCandidateRequest{})
+	sockPath := filepath.Join(c.socketDir, daemon+".vty")
+	vc, err := dialVTY(sockPath, c.timeout)
 	if err != nil {
-		return fmt.Errorf("frr: CreateCandidate failed: %w", err)
+		return fmt.Errorf("frr: connect to %s: %w", daemon, err)
 	}
-	candidateID := createResp.GetCandidateId()
+	defer vc.close()
 
-	c.log.Debug("created FRR candidate",
-		zap.Uint32("candidate_id", candidateID),
-		zap.Int("updates", len(updates)),
-		zap.Int("deletes", len(deletes)),
-	)
+	// Enter config mode.
+	if _, status, err := vc.execCmd("configure terminal"); err != nil {
+		return fmt.Errorf("frr: configure terminal on %s: %w", daemon, err)
+	} else if status != cmdSuccess {
+		return fmt.Errorf("frr: configure terminal on %s failed (status=%d)", daemon, status)
+	}
 
-	// Ensure candidate is always cleaned up.
-	cleanup := func() {
-		if _, delErr := c.nb.DeleteCandidate(ctx, &frr.DeleteCandidateRequest{
-			CandidateId: candidateID,
-		}); delErr != nil {
-			c.log.Warn("failed to delete FRR candidate",
-				zap.Uint32("candidate_id", candidateID),
-				zap.Error(delErr),
-			)
+	// Run each command.
+	for _, cmd := range commands {
+		output, status, err := vc.execCmd(cmd)
+		if err != nil {
+			return fmt.Errorf("frr: exec %q on %s: %w", cmd, daemon, err)
 		}
+		if status != cmdSuccess && status != cmdWarning {
+			return fmt.Errorf("frr: %q on %s failed (status=%d): %s", cmd, daemon, status, strings.TrimSpace(output))
+		}
+		c.log.Debug("VTY command OK",
+			zap.String("daemon", daemon),
+			zap.String("cmd", cmd),
+		)
 	}
 
-	// Step 2: Edit the candidate with updates and deletes.
-	_, err = c.nb.EditCandidate(ctx, &frr.EditCandidateRequest{
-		CandidateId: candidateID,
-		Update:      updates,
-		Delete:      deletes,
-	})
-	if err != nil {
-		cleanup()
-		return fmt.Errorf("frr: EditCandidate failed (candidate_id=%d): %w", candidateID, err)
-	}
-
-	// Step 3: Commit the candidate atomically.
-	commitResp, err := c.nb.Commit(ctx, &frr.CommitRequest{
-		CandidateId: candidateID,
-		Phase:       frr.CommitRequest_ALL,
-		Comment:     "NovaRoute configuration update",
-	})
-	if err != nil {
-		cleanup()
-		return fmt.Errorf("frr: Commit failed (candidate_id=%d): %w", candidateID, err)
-	}
-	if commitResp.GetErrorMessage() != "" {
-		cleanup()
-		return fmt.Errorf("frr: Commit returned error (candidate_id=%d): %s", candidateID, commitResp.GetErrorMessage())
-	}
-
-	c.log.Debug("committed FRR candidate",
-		zap.Uint32("candidate_id", candidateID),
-		zap.Uint32("transaction_id", commitResp.GetTransactionId()),
-	)
-
-	// Step 4: Delete the candidate (cleanup).
-	cleanup()
+	// Exit config mode.
+	_, _, _ = vc.execCmd("end")
 
 	return nil
 }
 
-// pv is a shorthand helper to create a PathValue.
-func pv(path, value string) *frr.PathValue {
-	return &frr.PathValue{
-		Path:  path,
-		Value: value,
-	}
-}
+// runShow connects to a daemon's VTY socket and executes a show command.
+func (c *Client) runShow(daemon string, command string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-// pvDelete is a shorthand helper to create a PathValue for deletion (empty value).
-func pvDelete(path string) *frr.PathValue {
-	return &frr.PathValue{
-		Path:  path,
-		Value: "",
+	sockPath := filepath.Join(c.socketDir, daemon+".vty")
+	vc, err := dialVTY(sockPath, c.timeout)
+	if err != nil {
+		return "", fmt.Errorf("frr: connect to %s: %w", daemon, err)
 	}
+	defer vc.close()
+
+	output, status, err := vc.execCmd(command)
+	if err != nil {
+		return "", fmt.Errorf("frr: exec %q on %s: %w", command, daemon, err)
+	}
+	if status != cmdSuccess && status != cmdWarning {
+		return output, fmt.Errorf("frr: %q on %s failed (status=%d): %s", command, daemon, status, strings.TrimSpace(output))
+	}
+
+	return output, nil
 }
