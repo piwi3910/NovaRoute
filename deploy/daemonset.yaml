@@ -40,12 +40,14 @@ spec:
         app.kubernetes.io/component: agent
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9100"
+        prometheus.io/port: "9102"
         prometheus.io/path: "/metrics"
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: novaroute-agent
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       terminationGracePeriodSeconds: 60
       tolerations:
         - operator: Exists
@@ -56,17 +58,17 @@ spec:
         # NovaRoute agent -- the routing control plane
         - name: novaroute-agent
           image: ghcr.io/piwi3910/novaroute-agent:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           args:
             - --config=/etc/novaroute/config.json
           ports:
             - name: metrics
-              containerPort: 9100
+              containerPort: 9102
               protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 9100
+              port: 9102
             initialDelaySeconds: 10
             periodSeconds: 15
             timeoutSeconds: 5
@@ -74,7 +76,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 9100
+              port: 9102
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
@@ -101,8 +103,8 @@ spec:
 
         # FRR sidecar -- the routing engine (bgpd, bfdd, ospfd, zebra, mgmtd)
         - name: frr
-          image: quay.io/frrouting/frr:10.3.1
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/piwi3910/novaroute-frr:10.5.1
+          imagePullPolicy: Always
           resources:
             requests:
               cpu: 100m

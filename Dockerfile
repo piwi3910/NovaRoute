@@ -1,5 +1,5 @@
 # Stage 1: Build the Go binaries
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git make
 
@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/novaroute-agent .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/novaroutectl ./cmd/novaroutectl/
 
 # Stage 2: Minimal runtime image
-FROM alpine:3.20
+FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata
 
@@ -32,7 +32,7 @@ COPY --from=builder /out/novaroutectl /usr/local/bin/novaroutectl
 VOLUME ["/etc/novaroute"]
 
 # Prometheus metrics port.
-EXPOSE 9100
+EXPOSE 9102
 
 ENTRYPOINT ["novaroute-agent"]
 CMD ["--config=/etc/novaroute/config.json"]
