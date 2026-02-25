@@ -19,6 +19,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// EventPublisher publishes route events. Implemented by server.EventBus.
+type EventPublisher interface {
+	PublishRouteEvent(eventType uint32, owner, detail string, metadata map[string]string)
+}
+
 // BGPGlobalConfig holds the BGP AS number and router ID needed to bootstrap
 // the BGP instance in FRR before any neighbors or networks can be added.
 type BGPGlobalConfig struct {
@@ -43,6 +48,12 @@ type Reconciler struct {
 	bgpConfigured   bool
 	mu              sync.Mutex
 
+	// Event publishing for FRR state changes.
+	eventPublisher EventPublisher
+	lastBGPStates  map[string]string // peer addr → state (e.g. "Established", "Idle")
+	lastBFDStates  map[string]string // peer addr → status ("up", "down")
+	lastOSPFStates map[string]string // neighborID → state ("Full", "Down")
+
 	// triggerCh signals an immediate reconciliation.
 	triggerCh chan struct{}
 }
@@ -62,7 +73,10 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 		appliedPrefixes: make(map[string]*intent.PrefixIntent),
 		appliedBFD:      make(map[string]*intent.BFDIntent),
 		appliedOSPF:     make(map[string]*intent.OSPFIntent),
-		triggerCh:       make(chan struct{}, 1),
+		lastBGPStates:   make(map[string]string),
+		lastBFDStates:   make(map[string]string),
+		lastOSPFStates:  make(map[string]string),
+		triggerCh:        make(chan struct{}, 1),
 	}
 }
 
@@ -117,6 +131,10 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	r.logger.Debug("reconciliation cycle complete",
 		zap.Duration("duration", time.Since(start)),
 	)
+
+	// Monitor FRR state for peer/BFD/OSPF changes and publish events.
+	r.monitorFRRState(ctx)
+
 	return nil
 }
 
@@ -487,6 +505,85 @@ func (r *Reconciler) SetFRRClient(client *frr.Client) {
 	defer r.mu.Unlock()
 	r.frrClient = client
 	r.logger.Info("FRR client updated in reconciler")
+}
+
+// SetEventPublisher sets the event publisher used to emit FRR state change
+// events (peer up/down, BFD up/down, OSPF neighbor changes). This is
+// typically called after the gRPC server's EventBus is initialized.
+func (r *Reconciler) SetEventPublisher(ep EventPublisher) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.eventPublisher = ep
+}
+
+// monitorFRRState queries FRR for current BGP neighbor, BFD peer, and OSPF
+// neighbor state, compares with the last-known state, and publishes events
+// for any changes. It is called at the end of each successful reconciliation
+// cycle and must NOT be called while holding r.mu.
+func (r *Reconciler) monitorFRRState(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.frrClient == nil || r.eventPublisher == nil {
+		return
+	}
+
+	// Check BGP neighbors.
+	bgpNeighbors, err := r.frrClient.GetBGPNeighbors(ctx)
+	if err != nil {
+		r.logger.Debug("failed to get BGP neighbors for monitoring", zap.Error(err))
+	} else {
+		for _, nbr := range bgpNeighbors {
+			prev, existed := r.lastBGPStates[nbr.Address]
+			if existed && prev != nbr.State {
+				// State changed.
+				if nbr.State == "Established" {
+					r.eventPublisher.PublishRouteEvent(1, "", fmt.Sprintf("BGP peer %s is now %s (was %s)", nbr.Address, nbr.State, prev), map[string]string{"peer": nbr.Address, "state": nbr.State, "previous_state": prev})
+				} else if prev == "Established" {
+					r.eventPublisher.PublishRouteEvent(2, "", fmt.Sprintf("BGP peer %s is now %s (was %s)", nbr.Address, nbr.State, prev), map[string]string{"peer": nbr.Address, "state": nbr.State, "previous_state": prev})
+				}
+			} else if !existed && nbr.State == "Established" {
+				r.eventPublisher.PublishRouteEvent(1, "", fmt.Sprintf("BGP peer %s is Established", nbr.Address), map[string]string{"peer": nbr.Address, "state": nbr.State})
+			}
+			r.lastBGPStates[nbr.Address] = nbr.State
+		}
+	}
+
+	// Check BFD peers.
+	bfdPeers, err := r.frrClient.GetBFDPeers(ctx)
+	if err != nil {
+		r.logger.Debug("failed to get BFD peers for monitoring", zap.Error(err))
+	} else {
+		for _, peer := range bfdPeers {
+			prev, existed := r.lastBFDStates[peer.PeerAddress]
+			if existed && prev != peer.Status {
+				if peer.Status == "up" {
+					r.eventPublisher.PublishRouteEvent(5, "", fmt.Sprintf("BFD peer %s is now up (was %s)", peer.PeerAddress, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
+				} else {
+					r.eventPublisher.PublishRouteEvent(6, "", fmt.Sprintf("BFD peer %s is now %s (was %s)", peer.PeerAddress, peer.Status, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
+				}
+			}
+			r.lastBFDStates[peer.PeerAddress] = peer.Status
+		}
+	}
+
+	// Check OSPF neighbors.
+	ospfNeighbors, err := r.frrClient.GetOSPFNeighbors(ctx)
+	if err != nil {
+		r.logger.Debug("failed to get OSPF neighbors for monitoring", zap.Error(err))
+	} else {
+		for _, nbr := range ospfNeighbors {
+			prev, existed := r.lastOSPFStates[nbr.NeighborID]
+			if existed && prev != nbr.State {
+				if nbr.State == "Full" {
+					r.eventPublisher.PublishRouteEvent(7, "", fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
+				} else if prev == "Full" {
+					r.eventPublisher.PublishRouteEvent(8, "", fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
+				}
+			}
+			r.lastOSPFStates[nbr.NeighborID] = nbr.State
+		}
+	}
 }
 
 // WithdrawAll removes all applied routing state from FRR in preparation for
