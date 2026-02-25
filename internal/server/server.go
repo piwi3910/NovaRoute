@@ -11,6 +11,7 @@ import (
 	"time"
 
 	v1 "github.com/piwi3910/NovaRoute/api/v1"
+	"github.com/piwi3910/NovaRoute/internal/frr"
 	"github.com/piwi3910/NovaRoute/internal/intent"
 	"github.com/piwi3910/NovaRoute/internal/metrics"
 	"github.com/piwi3910/NovaRoute/internal/policy"
@@ -45,6 +46,9 @@ type Server struct {
 	logger      *zap.Logger
 	eventBus    *EventBus
 
+	// FRR client for querying real state in GetStatus.
+	frrClient *frr.Client
+
 	// Session tracking
 	sessions   map[string]*Session // keyed by owner
 	sessionsMu sync.RWMutex
@@ -77,6 +81,11 @@ func New(gs *grpc.Server, store *intent.Store, pol *policy.Engine, rec Reconcile
 // the FRR reconciler) can publish events.
 func (s *Server) EventBus() *EventBus {
 	return s.eventBus
+}
+
+// SetFRRClient sets the FRR client used by GetStatus to query real FRR state.
+func (s *Server) SetFRRClient(client *frr.Client) {
+	s.frrClient = client
 }
 
 // ---------------------------------------------------------------------------
@@ -825,7 +834,8 @@ func (s *Server) DisableOSPF(ctx context.Context, req *v1.DisableOSPFRequest) (*
 // ---------------------------------------------------------------------------
 
 // GetStatus returns an aggregated view of all routing intents, optionally
-// filtered by owner.
+// filtered by owner. When the FRR client is available, it enriches peer,
+// BFD, and OSPF status with real state from FRR show commands.
 func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.GetStatusResponse, error) {
 	start := time.Now()
 	defer func() { metrics.ObserveGRPCDuration("GetStatus", time.Since(start).Seconds()) }()
@@ -846,16 +856,47 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 		allIntents = s.intentStore.GetAllIntents()
 	}
 
-	// Build peer status list.
+	// Query real FRR state if the client is available.
+	var bgpStates map[string]*frr.BGPNeighborState
+	var bfdStates map[string]*frr.BFDPeerState
+	var ospfStates map[string]*frr.OSPFNeighborState
+
+	if s.frrClient != nil {
+		if neighbors, err := s.frrClient.GetBGPNeighbors(ctx); err == nil {
+			bgpStates = make(map[string]*frr.BGPNeighborState, len(neighbors))
+			for i := range neighbors {
+				bgpStates[neighbors[i].Address] = &neighbors[i]
+			}
+		}
+		if peers, err := s.frrClient.GetBFDPeers(ctx); err == nil {
+			bfdStates = make(map[string]*frr.BFDPeerState, len(peers))
+			for i := range peers {
+				bfdStates[peers[i].PeerAddress] = &peers[i]
+			}
+		}
+		if neighbors, err := s.frrClient.GetOSPFNeighbors(ctx); err == nil {
+			ospfStates = make(map[string]*frr.OSPFNeighborState, len(neighbors))
+			for i := range neighbors {
+				ospfStates[neighbors[i].NeighborID] = &neighbors[i]
+			}
+		}
+	}
+
+	// Build peer status list, merging intent config with real FRR state.
 	for owner, oi := range allIntents {
 		for _, p := range oi.Peers {
-			resp.Peers = append(resp.Peers, &v1.PeerStatus{
+			ps := &v1.PeerStatus{
 				NeighborAddress: p.NeighborAddress,
 				RemoteAs:        p.RemoteAS,
 				State:           "configured",
 				Owner:           owner,
 				BfdEnabled:      p.BFDEnabled,
-			})
+			}
+			if bgp, ok := bgpStates[p.NeighborAddress]; ok {
+				ps.State = bgp.State
+				ps.Uptime = bgp.UpTime
+			}
+			resp.Peers = append(resp.Peers, ps)
 		}
 	}
 
@@ -871,38 +912,56 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 		}
 	}
 
-	// Build BFD session status list.
+	// Build BFD session status list, merging with real FRR state.
 	for owner, oi := range allIntents {
 		for _, b := range oi.BFD {
-			resp.BfdSessions = append(resp.BfdSessions, &v1.BFDSessionStatus{
+			bs := &v1.BFDSessionStatus{
 				PeerAddress:      b.PeerAddress,
 				State:            "configured",
 				Owner:            owner,
 				MinRxMs:          b.MinRxMs,
 				MinTxMs:          b.MinTxMs,
 				DetectMultiplier: b.DetectMultiplier,
-			})
+			}
+			if bfd, ok := bfdStates[b.PeerAddress]; ok {
+				bs.State = bfd.Status
+			}
+			resp.BfdSessions = append(resp.BfdSessions, bs)
 		}
 	}
 
-	// Build OSPF interface status list.
+	// Build OSPF interface status list, merging with real FRR state.
 	for owner, oi := range allIntents {
 		for _, o := range oi.OSPF {
-			resp.OspfInterfaces = append(resp.OspfInterfaces, &v1.OSPFInterfaceStatus{
+			os := &v1.OSPFInterfaceStatus{
 				InterfaceName: o.InterfaceName,
 				AreaId:        o.AreaID,
 				State:         "configured",
 				Owner:         owner,
 				Cost:          o.Cost,
-			})
+			}
+			// OSPF state is keyed by neighbor ID, not interface. Match by
+			// checking if any OSPF neighbor is on this interface.
+			for _, nbr := range ospfStates {
+				if nbr.Interface == o.InterfaceName {
+					os.State = nbr.State
+					break
+				}
+			}
+			resp.OspfInterfaces = append(resp.OspfInterfaces, os)
 		}
 	}
 
-	// FRR status placeholder -- the reconciler or FRR bridge should populate
-	// this in a future iteration. For now, return a stub.
+	// Build real FRR status.
 	resp.FrrStatus = &v1.FRRStatus{
 		Version:   "unknown",
 		Connected: false,
+	}
+	if s.frrClient != nil {
+		resp.FrrStatus.Connected = s.frrClient.IsReady()
+		if version, err := s.frrClient.GetVersion(ctx); err == nil {
+			resp.FrrStatus.Version = version
+		}
 	}
 
 	return resp, nil

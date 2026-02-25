@@ -149,17 +149,6 @@ func main() {
 	rec.RunLoop(ctx, 30*time.Second)
 	logger.Info("reconciler loop started")
 
-	// When FRR connects, update the reconciler's client and trigger a reconcile.
-	go func() {
-		select {
-		case <-frrReady:
-			rec.SetFRRClient(frrClient)
-			logger.Info("FRR client injected into reconciler")
-			rec.TriggerReconcile()
-		case <-ctx.Done():
-		}
-	}()
-
 	// Create gRPC server.
 	grpcServer := grpc.NewServer()
 	srv := server.New(grpcServer, store, policyEngine, rec, logger)
@@ -167,6 +156,19 @@ func main() {
 
 	// Wire the server's event bus into the reconciler for FRR state change events.
 	rec.SetEventPublisher(srv.EventBus())
+
+	// When FRR connects, update the reconciler and server with the FRR client
+	// and trigger an initial reconcile.
+	go func() {
+		select {
+		case <-frrReady:
+			rec.SetFRRClient(frrClient)
+			srv.SetFRRClient(frrClient)
+			logger.Info("FRR client injected into reconciler and server")
+			rec.TriggerReconcile()
+		case <-ctx.Done():
+		}
+	}()
 
 	// Remove stale socket file if it exists.
 	socketPath := cfg.ListenSocket
