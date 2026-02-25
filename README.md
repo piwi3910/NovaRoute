@@ -529,9 +529,10 @@ NovaRoute/
 | **Prometheus metrics** | Done | gRPC duration, policy violations, intent counts, active sessions per owner |
 | **DaemonSet deployment** | Done | Agent + FRR sidecar, ConfigMaps, hostNetwork, rolling update |
 | **CI/CD** | Done | Lint, test, build, security scan, multi-arch release |
-| FRR state monitoring | Not yet | Reconciler compares desired vs its own applied state, does not query FRR for actual state |
-| Real event publishing | Not yet | Events published for API actions, not from FRR state changes (no peer up/down from FRR) |
-| Graceful shutdown | Not yet | No route withdrawal or RPC drain on SIGTERM |
+| **FRR state monitoring** | Done | Reconciler queries FRR show commands (BGP/BFD/OSPF) after each cycle, detects state changes |
+| **Real event publishing** | Done | Events published on FRR state transitions (peer up/down, BFD up/down, OSPF neighbor changes) |
+| **Graceful shutdown** | Done | WithdrawAll removes prefixes, BFD, OSPF, peers on SIGTERM with 10s timeout |
+| **Real GetStatus** | Done | GetStatus RPC returns actual FRR peer state, BFD status, OSPF state, FRR version |
 | Multi-owner peer sharing | Not yet | Two owners requesting the same peer are handled independently |
 | Route-maps / BGP filters | Not yet | No route-map, community filter, or path selection policy support |
 | OSPF authentication | Not yet | |
@@ -541,8 +542,6 @@ NovaRoute/
 
 ## Future Work
 
-- **FRR state monitoring** — Parse `show bgp neighbors`, `show bfd peers`, `show ip ospf neighbor` output to detect actual peer states and publish real events
-- **Graceful shutdown** — Withdraw all routes and drain RPCs on SIGTERM
 - **Multi-owner peer sharing** — Merge BGP sessions when multiple owners request the same peer; remove only when all owners withdraw
 - **Route-maps and filters** — BGP route-map, community filter, AS-path filter support
 - **NovaNet integration** — Pod CIDR advertisement with multi-owner coordination
