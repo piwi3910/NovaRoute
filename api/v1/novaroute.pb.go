@@ -466,6 +466,126 @@ func (*DeregisterResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{3}
 }
 
+type ConfigureBGPRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	LocalAs       uint32                 `protobuf:"varint,3,opt,name=local_as,json=localAs,proto3" json:"local_as,omitempty"`
+	RouterId      string                 `protobuf:"bytes,4,opt,name=router_id,json=routerId,proto3" json:"router_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigureBGPRequest) Reset() {
+	*x = ConfigureBGPRequest{}
+	mi := &file_api_v1_novaroute_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigureBGPRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigureBGPRequest) ProtoMessage() {}
+
+func (x *ConfigureBGPRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_v1_novaroute_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigureBGPRequest.ProtoReflect.Descriptor instead.
+func (*ConfigureBGPRequest) Descriptor() ([]byte, []int) {
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ConfigureBGPRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *ConfigureBGPRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ConfigureBGPRequest) GetLocalAs() uint32 {
+	if x != nil {
+		return x.LocalAs
+	}
+	return 0
+}
+
+func (x *ConfigureBGPRequest) GetRouterId() string {
+	if x != nil {
+		return x.RouterId
+	}
+	return ""
+}
+
+type ConfigureBGPResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PreviousAs       uint32                 `protobuf:"varint,1,opt,name=previous_as,json=previousAs,proto3" json:"previous_as,omitempty"`
+	PreviousRouterId string                 `protobuf:"bytes,2,opt,name=previous_router_id,json=previousRouterId,proto3" json:"previous_router_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ConfigureBGPResponse) Reset() {
+	*x = ConfigureBGPResponse{}
+	mi := &file_api_v1_novaroute_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigureBGPResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigureBGPResponse) ProtoMessage() {}
+
+func (x *ConfigureBGPResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_v1_novaroute_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigureBGPResponse.ProtoReflect.Descriptor instead.
+func (*ConfigureBGPResponse) Descriptor() ([]byte, []int) {
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ConfigureBGPResponse) GetPreviousAs() uint32 {
+	if x != nil {
+		return x.PreviousAs
+	}
+	return 0
+}
+
+func (x *ConfigureBGPResponse) GetPreviousRouterId() string {
+	if x != nil {
+		return x.PreviousRouterId
+	}
+	return ""
+}
+
 type ApplyPeerRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Owner         string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
@@ -477,7 +597,7 @@ type ApplyPeerRequest struct {
 
 func (x *ApplyPeerRequest) Reset() {
 	*x = ApplyPeerRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[4]
+	mi := &file_api_v1_novaroute_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -489,7 +609,7 @@ func (x *ApplyPeerRequest) String() string {
 func (*ApplyPeerRequest) ProtoMessage() {}
 
 func (x *ApplyPeerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[4]
+	mi := &file_api_v1_novaroute_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -502,7 +622,7 @@ func (x *ApplyPeerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyPeerRequest.ProtoReflect.Descriptor instead.
 func (*ApplyPeerRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{4}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ApplyPeerRequest) GetOwner() string {
@@ -545,7 +665,7 @@ type BGPPeer struct {
 
 func (x *BGPPeer) Reset() {
 	*x = BGPPeer{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[5]
+	mi := &file_api_v1_novaroute_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -557,7 +677,7 @@ func (x *BGPPeer) String() string {
 func (*BGPPeer) ProtoMessage() {}
 
 func (x *BGPPeer) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[5]
+	mi := &file_api_v1_novaroute_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -570,7 +690,7 @@ func (x *BGPPeer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BGPPeer.ProtoReflect.Descriptor instead.
 func (*BGPPeer) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{5}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BGPPeer) GetNeighborAddress() string {
@@ -658,7 +778,7 @@ type ApplyPeerResponse struct {
 
 func (x *ApplyPeerResponse) Reset() {
 	*x = ApplyPeerResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[6]
+	mi := &file_api_v1_novaroute_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -670,7 +790,7 @@ func (x *ApplyPeerResponse) String() string {
 func (*ApplyPeerResponse) ProtoMessage() {}
 
 func (x *ApplyPeerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[6]
+	mi := &file_api_v1_novaroute_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -683,7 +803,7 @@ func (x *ApplyPeerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyPeerResponse.ProtoReflect.Descriptor instead.
 func (*ApplyPeerResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{6}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{8}
 }
 
 type RemovePeerRequest struct {
@@ -697,7 +817,7 @@ type RemovePeerRequest struct {
 
 func (x *RemovePeerRequest) Reset() {
 	*x = RemovePeerRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[7]
+	mi := &file_api_v1_novaroute_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +829,7 @@ func (x *RemovePeerRequest) String() string {
 func (*RemovePeerRequest) ProtoMessage() {}
 
 func (x *RemovePeerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[7]
+	mi := &file_api_v1_novaroute_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +842,7 @@ func (x *RemovePeerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemovePeerRequest.ProtoReflect.Descriptor instead.
 func (*RemovePeerRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{7}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RemovePeerRequest) GetOwner() string {
@@ -754,7 +874,7 @@ type RemovePeerResponse struct {
 
 func (x *RemovePeerResponse) Reset() {
 	*x = RemovePeerResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[8]
+	mi := &file_api_v1_novaroute_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -766,7 +886,7 @@ func (x *RemovePeerResponse) String() string {
 func (*RemovePeerResponse) ProtoMessage() {}
 
 func (x *RemovePeerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[8]
+	mi := &file_api_v1_novaroute_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -779,7 +899,7 @@ func (x *RemovePeerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemovePeerResponse.ProtoReflect.Descriptor instead.
 func (*RemovePeerResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{8}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{10}
 }
 
 type AdvertisePrefixRequest struct {
@@ -795,7 +915,7 @@ type AdvertisePrefixRequest struct {
 
 func (x *AdvertisePrefixRequest) Reset() {
 	*x = AdvertisePrefixRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[9]
+	mi := &file_api_v1_novaroute_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -807,7 +927,7 @@ func (x *AdvertisePrefixRequest) String() string {
 func (*AdvertisePrefixRequest) ProtoMessage() {}
 
 func (x *AdvertisePrefixRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[9]
+	mi := &file_api_v1_novaroute_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -820,7 +940,7 @@ func (x *AdvertisePrefixRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdvertisePrefixRequest.ProtoReflect.Descriptor instead.
 func (*AdvertisePrefixRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{9}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AdvertisePrefixRequest) GetOwner() string {
@@ -870,7 +990,7 @@ type PrefixAttributes struct {
 
 func (x *PrefixAttributes) Reset() {
 	*x = PrefixAttributes{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[10]
+	mi := &file_api_v1_novaroute_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +1002,7 @@ func (x *PrefixAttributes) String() string {
 func (*PrefixAttributes) ProtoMessage() {}
 
 func (x *PrefixAttributes) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[10]
+	mi := &file_api_v1_novaroute_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +1015,7 @@ func (x *PrefixAttributes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrefixAttributes.ProtoReflect.Descriptor instead.
 func (*PrefixAttributes) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{10}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PrefixAttributes) GetLocalPreference() uint32 {
@@ -934,7 +1054,7 @@ type AdvertisePrefixResponse struct {
 
 func (x *AdvertisePrefixResponse) Reset() {
 	*x = AdvertisePrefixResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[11]
+	mi := &file_api_v1_novaroute_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -946,7 +1066,7 @@ func (x *AdvertisePrefixResponse) String() string {
 func (*AdvertisePrefixResponse) ProtoMessage() {}
 
 func (x *AdvertisePrefixResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[11]
+	mi := &file_api_v1_novaroute_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -959,7 +1079,7 @@ func (x *AdvertisePrefixResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdvertisePrefixResponse.ProtoReflect.Descriptor instead.
 func (*AdvertisePrefixResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{11}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{13}
 }
 
 type WithdrawPrefixRequest struct {
@@ -974,7 +1094,7 @@ type WithdrawPrefixRequest struct {
 
 func (x *WithdrawPrefixRequest) Reset() {
 	*x = WithdrawPrefixRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[12]
+	mi := &file_api_v1_novaroute_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -986,7 +1106,7 @@ func (x *WithdrawPrefixRequest) String() string {
 func (*WithdrawPrefixRequest) ProtoMessage() {}
 
 func (x *WithdrawPrefixRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[12]
+	mi := &file_api_v1_novaroute_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -999,7 +1119,7 @@ func (x *WithdrawPrefixRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WithdrawPrefixRequest.ProtoReflect.Descriptor instead.
 func (*WithdrawPrefixRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{12}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WithdrawPrefixRequest) GetOwner() string {
@@ -1038,7 +1158,7 @@ type WithdrawPrefixResponse struct {
 
 func (x *WithdrawPrefixResponse) Reset() {
 	*x = WithdrawPrefixResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[13]
+	mi := &file_api_v1_novaroute_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1050,7 +1170,7 @@ func (x *WithdrawPrefixResponse) String() string {
 func (*WithdrawPrefixResponse) ProtoMessage() {}
 
 func (x *WithdrawPrefixResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[13]
+	mi := &file_api_v1_novaroute_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1063,7 +1183,7 @@ func (x *WithdrawPrefixResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WithdrawPrefixResponse.ProtoReflect.Descriptor instead.
 func (*WithdrawPrefixResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{13}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{15}
 }
 
 type EnableBFDRequest struct {
@@ -1081,7 +1201,7 @@ type EnableBFDRequest struct {
 
 func (x *EnableBFDRequest) Reset() {
 	*x = EnableBFDRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[14]
+	mi := &file_api_v1_novaroute_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1093,7 +1213,7 @@ func (x *EnableBFDRequest) String() string {
 func (*EnableBFDRequest) ProtoMessage() {}
 
 func (x *EnableBFDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[14]
+	mi := &file_api_v1_novaroute_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1106,7 +1226,7 @@ func (x *EnableBFDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableBFDRequest.ProtoReflect.Descriptor instead.
 func (*EnableBFDRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{14}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *EnableBFDRequest) GetOwner() string {
@@ -1166,7 +1286,7 @@ type EnableBFDResponse struct {
 
 func (x *EnableBFDResponse) Reset() {
 	*x = EnableBFDResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[15]
+	mi := &file_api_v1_novaroute_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1178,7 +1298,7 @@ func (x *EnableBFDResponse) String() string {
 func (*EnableBFDResponse) ProtoMessage() {}
 
 func (x *EnableBFDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[15]
+	mi := &file_api_v1_novaroute_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1191,7 +1311,7 @@ func (x *EnableBFDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableBFDResponse.ProtoReflect.Descriptor instead.
 func (*EnableBFDResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{15}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{17}
 }
 
 type DisableBFDRequest struct {
@@ -1205,7 +1325,7 @@ type DisableBFDRequest struct {
 
 func (x *DisableBFDRequest) Reset() {
 	*x = DisableBFDRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[16]
+	mi := &file_api_v1_novaroute_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1217,7 +1337,7 @@ func (x *DisableBFDRequest) String() string {
 func (*DisableBFDRequest) ProtoMessage() {}
 
 func (x *DisableBFDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[16]
+	mi := &file_api_v1_novaroute_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1230,7 +1350,7 @@ func (x *DisableBFDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableBFDRequest.ProtoReflect.Descriptor instead.
 func (*DisableBFDRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{16}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DisableBFDRequest) GetOwner() string {
@@ -1262,7 +1382,7 @@ type DisableBFDResponse struct {
 
 func (x *DisableBFDResponse) Reset() {
 	*x = DisableBFDResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[17]
+	mi := &file_api_v1_novaroute_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1274,7 +1394,7 @@ func (x *DisableBFDResponse) String() string {
 func (*DisableBFDResponse) ProtoMessage() {}
 
 func (x *DisableBFDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[17]
+	mi := &file_api_v1_novaroute_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1287,7 +1407,7 @@ func (x *DisableBFDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableBFDResponse.ProtoReflect.Descriptor instead.
 func (*DisableBFDResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{17}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{19}
 }
 
 type EnableOSPFRequest struct {
@@ -1306,7 +1426,7 @@ type EnableOSPFRequest struct {
 
 func (x *EnableOSPFRequest) Reset() {
 	*x = EnableOSPFRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[18]
+	mi := &file_api_v1_novaroute_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1318,7 +1438,7 @@ func (x *EnableOSPFRequest) String() string {
 func (*EnableOSPFRequest) ProtoMessage() {}
 
 func (x *EnableOSPFRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[18]
+	mi := &file_api_v1_novaroute_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1331,7 +1451,7 @@ func (x *EnableOSPFRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableOSPFRequest.ProtoReflect.Descriptor instead.
 func (*EnableOSPFRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{18}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EnableOSPFRequest) GetOwner() string {
@@ -1398,7 +1518,7 @@ type EnableOSPFResponse struct {
 
 func (x *EnableOSPFResponse) Reset() {
 	*x = EnableOSPFResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[19]
+	mi := &file_api_v1_novaroute_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1410,7 +1530,7 @@ func (x *EnableOSPFResponse) String() string {
 func (*EnableOSPFResponse) ProtoMessage() {}
 
 func (x *EnableOSPFResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[19]
+	mi := &file_api_v1_novaroute_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1423,7 +1543,7 @@ func (x *EnableOSPFResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableOSPFResponse.ProtoReflect.Descriptor instead.
 func (*EnableOSPFResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{19}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{21}
 }
 
 type DisableOSPFRequest struct {
@@ -1437,7 +1557,7 @@ type DisableOSPFRequest struct {
 
 func (x *DisableOSPFRequest) Reset() {
 	*x = DisableOSPFRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[20]
+	mi := &file_api_v1_novaroute_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +1569,7 @@ func (x *DisableOSPFRequest) String() string {
 func (*DisableOSPFRequest) ProtoMessage() {}
 
 func (x *DisableOSPFRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[20]
+	mi := &file_api_v1_novaroute_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +1582,7 @@ func (x *DisableOSPFRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableOSPFRequest.ProtoReflect.Descriptor instead.
 func (*DisableOSPFRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{20}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DisableOSPFRequest) GetOwner() string {
@@ -1494,7 +1614,7 @@ type DisableOSPFResponse struct {
 
 func (x *DisableOSPFResponse) Reset() {
 	*x = DisableOSPFResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[21]
+	mi := &file_api_v1_novaroute_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1506,7 +1626,7 @@ func (x *DisableOSPFResponse) String() string {
 func (*DisableOSPFResponse) ProtoMessage() {}
 
 func (x *DisableOSPFResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[21]
+	mi := &file_api_v1_novaroute_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1519,7 +1639,7 @@ func (x *DisableOSPFResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableOSPFResponse.ProtoReflect.Descriptor instead.
 func (*DisableOSPFResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{21}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{23}
 }
 
 type GetStatusRequest struct {
@@ -1531,7 +1651,7 @@ type GetStatusRequest struct {
 
 func (x *GetStatusRequest) Reset() {
 	*x = GetStatusRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[22]
+	mi := &file_api_v1_novaroute_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1543,7 +1663,7 @@ func (x *GetStatusRequest) String() string {
 func (*GetStatusRequest) ProtoMessage() {}
 
 func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[22]
+	mi := &file_api_v1_novaroute_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1556,7 +1676,7 @@ func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{22}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetStatusRequest) GetOwnerFilter() string {
@@ -1579,7 +1699,7 @@ type GetStatusResponse struct {
 
 func (x *GetStatusResponse) Reset() {
 	*x = GetStatusResponse{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[23]
+	mi := &file_api_v1_novaroute_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1591,7 +1711,7 @@ func (x *GetStatusResponse) String() string {
 func (*GetStatusResponse) ProtoMessage() {}
 
 func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[23]
+	mi := &file_api_v1_novaroute_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1604,7 +1724,7 @@ func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{23}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GetStatusResponse) GetPeers() []*PeerStatus {
@@ -1659,7 +1779,7 @@ type PeerStatus struct {
 
 func (x *PeerStatus) Reset() {
 	*x = PeerStatus{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[24]
+	mi := &file_api_v1_novaroute_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1671,7 +1791,7 @@ func (x *PeerStatus) String() string {
 func (*PeerStatus) ProtoMessage() {}
 
 func (x *PeerStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[24]
+	mi := &file_api_v1_novaroute_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1684,7 +1804,7 @@ func (x *PeerStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerStatus.ProtoReflect.Descriptor instead.
 func (*PeerStatus) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{24}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *PeerStatus) GetNeighborAddress() string {
@@ -1762,7 +1882,7 @@ type PrefixStatus struct {
 
 func (x *PrefixStatus) Reset() {
 	*x = PrefixStatus{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[25]
+	mi := &file_api_v1_novaroute_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1774,7 +1894,7 @@ func (x *PrefixStatus) String() string {
 func (*PrefixStatus) ProtoMessage() {}
 
 func (x *PrefixStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[25]
+	mi := &file_api_v1_novaroute_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1787,7 +1907,7 @@ func (x *PrefixStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrefixStatus.ProtoReflect.Descriptor instead.
 func (*PrefixStatus) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{25}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *PrefixStatus) GetPrefix() string {
@@ -1833,7 +1953,7 @@ type BFDSessionStatus struct {
 
 func (x *BFDSessionStatus) Reset() {
 	*x = BFDSessionStatus{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[26]
+	mi := &file_api_v1_novaroute_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1845,7 +1965,7 @@ func (x *BFDSessionStatus) String() string {
 func (*BFDSessionStatus) ProtoMessage() {}
 
 func (x *BFDSessionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[26]
+	mi := &file_api_v1_novaroute_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1858,7 +1978,7 @@ func (x *BFDSessionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BFDSessionStatus.ProtoReflect.Descriptor instead.
 func (*BFDSessionStatus) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{26}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *BFDSessionStatus) GetPeerAddress() string {
@@ -1924,7 +2044,7 @@ type OSPFInterfaceStatus struct {
 
 func (x *OSPFInterfaceStatus) Reset() {
 	*x = OSPFInterfaceStatus{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[27]
+	mi := &file_api_v1_novaroute_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1936,7 +2056,7 @@ func (x *OSPFInterfaceStatus) String() string {
 func (*OSPFInterfaceStatus) ProtoMessage() {}
 
 func (x *OSPFInterfaceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[27]
+	mi := &file_api_v1_novaroute_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1949,7 +2069,7 @@ func (x *OSPFInterfaceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OSPFInterfaceStatus.ProtoReflect.Descriptor instead.
 func (*OSPFInterfaceStatus) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{27}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *OSPFInterfaceStatus) GetInterfaceName() string {
@@ -2005,7 +2125,7 @@ type FRRStatus struct {
 
 func (x *FRRStatus) Reset() {
 	*x = FRRStatus{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[28]
+	mi := &file_api_v1_novaroute_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2017,7 +2137,7 @@ func (x *FRRStatus) String() string {
 func (*FRRStatus) ProtoMessage() {}
 
 func (x *FRRStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[28]
+	mi := &file_api_v1_novaroute_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2030,7 +2150,7 @@ func (x *FRRStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FRRStatus.ProtoReflect.Descriptor instead.
 func (*FRRStatus) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{28}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *FRRStatus) GetVersion() string {
@@ -2064,7 +2184,7 @@ type StreamEventsRequest struct {
 
 func (x *StreamEventsRequest) Reset() {
 	*x = StreamEventsRequest{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[29]
+	mi := &file_api_v1_novaroute_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2076,7 +2196,7 @@ func (x *StreamEventsRequest) String() string {
 func (*StreamEventsRequest) ProtoMessage() {}
 
 func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[29]
+	mi := &file_api_v1_novaroute_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2089,7 +2209,7 @@ func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{29}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *StreamEventsRequest) GetOwnerFilter() string {
@@ -2119,7 +2239,7 @@ type RouteEvent struct {
 
 func (x *RouteEvent) Reset() {
 	*x = RouteEvent{}
-	mi := &file_api_v1_novaroute_proto_msgTypes[30]
+	mi := &file_api_v1_novaroute_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2131,7 +2251,7 @@ func (x *RouteEvent) String() string {
 func (*RouteEvent) ProtoMessage() {}
 
 func (x *RouteEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_novaroute_proto_msgTypes[30]
+	mi := &file_api_v1_novaroute_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2144,7 +2264,7 @@ func (x *RouteEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteEvent.ProtoReflect.Descriptor instead.
 func (*RouteEvent) Descriptor() ([]byte, []int) {
-	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{30}
+	return file_api_v1_novaroute_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RouteEvent) GetType() EventType {
@@ -2200,7 +2320,16 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12!\n" +
 	"\fwithdraw_all\x18\x03 \x01(\bR\vwithdrawAll\"\x14\n" +
-	"\x12DeregisterResponse\"i\n" +
+	"\x12DeregisterResponse\"y\n" +
+	"\x13ConfigureBGPRequest\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x19\n" +
+	"\blocal_as\x18\x03 \x01(\rR\alocalAs\x12\x1b\n" +
+	"\trouter_id\x18\x04 \x01(\tR\brouterId\"e\n" +
+	"\x14ConfigureBGPResponse\x12\x1f\n" +
+	"\vprevious_as\x18\x01 \x01(\rR\n" +
+	"previousAs\x12,\n" +
+	"\x12previous_router_id\x18\x02 \x01(\tR\x10previousRouterId\"i\n" +
 	"\x10ApplyPeerRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12)\n" +
@@ -2361,11 +2490,12 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x12\x1f\n" +
 	"\x1bEVENT_TYPE_OWNER_REGISTERED\x10\v\x12!\n" +
 	"\x1dEVENT_TYPE_OWNER_DEREGISTERED\x10\f\x12\x1f\n" +
-	"\x1bEVENT_TYPE_POLICY_VIOLATION\x10\r2\xe7\a\n" +
+	"\x1bEVENT_TYPE_POLICY_VIOLATION\x10\r2\xbe\b\n" +
 	"\fRouteControl\x12I\n" +
 	"\bRegister\x12\x1d.novaroute.v1.RegisterRequest\x1a\x1e.novaroute.v1.RegisterResponse\x12O\n" +
 	"\n" +
-	"Deregister\x12\x1f.novaroute.v1.DeregisterRequest\x1a .novaroute.v1.DeregisterResponse\x12L\n" +
+	"Deregister\x12\x1f.novaroute.v1.DeregisterRequest\x1a .novaroute.v1.DeregisterResponse\x12U\n" +
+	"\fConfigureBGP\x12!.novaroute.v1.ConfigureBGPRequest\x1a\".novaroute.v1.ConfigureBGPResponse\x12L\n" +
 	"\tApplyPeer\x12\x1e.novaroute.v1.ApplyPeerRequest\x1a\x1f.novaroute.v1.ApplyPeerResponse\x12O\n" +
 	"\n" +
 	"RemovePeer\x12\x1f.novaroute.v1.RemovePeerRequest\x1a .novaroute.v1.RemovePeerResponse\x12^\n" +
@@ -2393,7 +2523,7 @@ func file_api_v1_novaroute_proto_rawDescGZIP() []byte {
 }
 
 var file_api_v1_novaroute_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_v1_novaroute_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_api_v1_novaroute_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_api_v1_novaroute_proto_goTypes = []any{
 	(PeerType)(0),                   // 0: novaroute.v1.PeerType
 	(AddressFamily)(0),              // 1: novaroute.v1.AddressFamily
@@ -2403,76 +2533,80 @@ var file_api_v1_novaroute_proto_goTypes = []any{
 	(*RegisterResponse)(nil),        // 5: novaroute.v1.RegisterResponse
 	(*DeregisterRequest)(nil),       // 6: novaroute.v1.DeregisterRequest
 	(*DeregisterResponse)(nil),      // 7: novaroute.v1.DeregisterResponse
-	(*ApplyPeerRequest)(nil),        // 8: novaroute.v1.ApplyPeerRequest
-	(*BGPPeer)(nil),                 // 9: novaroute.v1.BGPPeer
-	(*ApplyPeerResponse)(nil),       // 10: novaroute.v1.ApplyPeerResponse
-	(*RemovePeerRequest)(nil),       // 11: novaroute.v1.RemovePeerRequest
-	(*RemovePeerResponse)(nil),      // 12: novaroute.v1.RemovePeerResponse
-	(*AdvertisePrefixRequest)(nil),  // 13: novaroute.v1.AdvertisePrefixRequest
-	(*PrefixAttributes)(nil),        // 14: novaroute.v1.PrefixAttributes
-	(*AdvertisePrefixResponse)(nil), // 15: novaroute.v1.AdvertisePrefixResponse
-	(*WithdrawPrefixRequest)(nil),   // 16: novaroute.v1.WithdrawPrefixRequest
-	(*WithdrawPrefixResponse)(nil),  // 17: novaroute.v1.WithdrawPrefixResponse
-	(*EnableBFDRequest)(nil),        // 18: novaroute.v1.EnableBFDRequest
-	(*EnableBFDResponse)(nil),       // 19: novaroute.v1.EnableBFDResponse
-	(*DisableBFDRequest)(nil),       // 20: novaroute.v1.DisableBFDRequest
-	(*DisableBFDResponse)(nil),      // 21: novaroute.v1.DisableBFDResponse
-	(*EnableOSPFRequest)(nil),       // 22: novaroute.v1.EnableOSPFRequest
-	(*EnableOSPFResponse)(nil),      // 23: novaroute.v1.EnableOSPFResponse
-	(*DisableOSPFRequest)(nil),      // 24: novaroute.v1.DisableOSPFRequest
-	(*DisableOSPFResponse)(nil),     // 25: novaroute.v1.DisableOSPFResponse
-	(*GetStatusRequest)(nil),        // 26: novaroute.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),       // 27: novaroute.v1.GetStatusResponse
-	(*PeerStatus)(nil),              // 28: novaroute.v1.PeerStatus
-	(*PrefixStatus)(nil),            // 29: novaroute.v1.PrefixStatus
-	(*BFDSessionStatus)(nil),        // 30: novaroute.v1.BFDSessionStatus
-	(*OSPFInterfaceStatus)(nil),     // 31: novaroute.v1.OSPFInterfaceStatus
-	(*FRRStatus)(nil),               // 32: novaroute.v1.FRRStatus
-	(*StreamEventsRequest)(nil),     // 33: novaroute.v1.StreamEventsRequest
-	(*RouteEvent)(nil),              // 34: novaroute.v1.RouteEvent
-	nil,                             // 35: novaroute.v1.RouteEvent.MetadataEntry
+	(*ConfigureBGPRequest)(nil),     // 8: novaroute.v1.ConfigureBGPRequest
+	(*ConfigureBGPResponse)(nil),    // 9: novaroute.v1.ConfigureBGPResponse
+	(*ApplyPeerRequest)(nil),        // 10: novaroute.v1.ApplyPeerRequest
+	(*BGPPeer)(nil),                 // 11: novaroute.v1.BGPPeer
+	(*ApplyPeerResponse)(nil),       // 12: novaroute.v1.ApplyPeerResponse
+	(*RemovePeerRequest)(nil),       // 13: novaroute.v1.RemovePeerRequest
+	(*RemovePeerResponse)(nil),      // 14: novaroute.v1.RemovePeerResponse
+	(*AdvertisePrefixRequest)(nil),  // 15: novaroute.v1.AdvertisePrefixRequest
+	(*PrefixAttributes)(nil),        // 16: novaroute.v1.PrefixAttributes
+	(*AdvertisePrefixResponse)(nil), // 17: novaroute.v1.AdvertisePrefixResponse
+	(*WithdrawPrefixRequest)(nil),   // 18: novaroute.v1.WithdrawPrefixRequest
+	(*WithdrawPrefixResponse)(nil),  // 19: novaroute.v1.WithdrawPrefixResponse
+	(*EnableBFDRequest)(nil),        // 20: novaroute.v1.EnableBFDRequest
+	(*EnableBFDResponse)(nil),       // 21: novaroute.v1.EnableBFDResponse
+	(*DisableBFDRequest)(nil),       // 22: novaroute.v1.DisableBFDRequest
+	(*DisableBFDResponse)(nil),      // 23: novaroute.v1.DisableBFDResponse
+	(*EnableOSPFRequest)(nil),       // 24: novaroute.v1.EnableOSPFRequest
+	(*EnableOSPFResponse)(nil),      // 25: novaroute.v1.EnableOSPFResponse
+	(*DisableOSPFRequest)(nil),      // 26: novaroute.v1.DisableOSPFRequest
+	(*DisableOSPFResponse)(nil),     // 27: novaroute.v1.DisableOSPFResponse
+	(*GetStatusRequest)(nil),        // 28: novaroute.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),       // 29: novaroute.v1.GetStatusResponse
+	(*PeerStatus)(nil),              // 30: novaroute.v1.PeerStatus
+	(*PrefixStatus)(nil),            // 31: novaroute.v1.PrefixStatus
+	(*BFDSessionStatus)(nil),        // 32: novaroute.v1.BFDSessionStatus
+	(*OSPFInterfaceStatus)(nil),     // 33: novaroute.v1.OSPFInterfaceStatus
+	(*FRRStatus)(nil),               // 34: novaroute.v1.FRRStatus
+	(*StreamEventsRequest)(nil),     // 35: novaroute.v1.StreamEventsRequest
+	(*RouteEvent)(nil),              // 36: novaroute.v1.RouteEvent
+	nil,                             // 37: novaroute.v1.RouteEvent.MetadataEntry
 }
 var file_api_v1_novaroute_proto_depIdxs = []int32{
-	9,  // 0: novaroute.v1.ApplyPeerRequest.peer:type_name -> novaroute.v1.BGPPeer
+	11, // 0: novaroute.v1.ApplyPeerRequest.peer:type_name -> novaroute.v1.BGPPeer
 	0,  // 1: novaroute.v1.BGPPeer.peer_type:type_name -> novaroute.v1.PeerType
 	1,  // 2: novaroute.v1.BGPPeer.address_families:type_name -> novaroute.v1.AddressFamily
 	2,  // 3: novaroute.v1.AdvertisePrefixRequest.protocol:type_name -> novaroute.v1.Protocol
-	14, // 4: novaroute.v1.AdvertisePrefixRequest.attributes:type_name -> novaroute.v1.PrefixAttributes
+	16, // 4: novaroute.v1.AdvertisePrefixRequest.attributes:type_name -> novaroute.v1.PrefixAttributes
 	2,  // 5: novaroute.v1.WithdrawPrefixRequest.protocol:type_name -> novaroute.v1.Protocol
-	28, // 6: novaroute.v1.GetStatusResponse.peers:type_name -> novaroute.v1.PeerStatus
-	29, // 7: novaroute.v1.GetStatusResponse.prefixes:type_name -> novaroute.v1.PrefixStatus
-	30, // 8: novaroute.v1.GetStatusResponse.bfd_sessions:type_name -> novaroute.v1.BFDSessionStatus
-	31, // 9: novaroute.v1.GetStatusResponse.ospf_interfaces:type_name -> novaroute.v1.OSPFInterfaceStatus
-	32, // 10: novaroute.v1.GetStatusResponse.frr_status:type_name -> novaroute.v1.FRRStatus
+	30, // 6: novaroute.v1.GetStatusResponse.peers:type_name -> novaroute.v1.PeerStatus
+	31, // 7: novaroute.v1.GetStatusResponse.prefixes:type_name -> novaroute.v1.PrefixStatus
+	32, // 8: novaroute.v1.GetStatusResponse.bfd_sessions:type_name -> novaroute.v1.BFDSessionStatus
+	33, // 9: novaroute.v1.GetStatusResponse.ospf_interfaces:type_name -> novaroute.v1.OSPFInterfaceStatus
+	34, // 10: novaroute.v1.GetStatusResponse.frr_status:type_name -> novaroute.v1.FRRStatus
 	2,  // 11: novaroute.v1.PrefixStatus.protocol:type_name -> novaroute.v1.Protocol
 	3,  // 12: novaroute.v1.RouteEvent.type:type_name -> novaroute.v1.EventType
-	35, // 13: novaroute.v1.RouteEvent.metadata:type_name -> novaroute.v1.RouteEvent.MetadataEntry
+	37, // 13: novaroute.v1.RouteEvent.metadata:type_name -> novaroute.v1.RouteEvent.MetadataEntry
 	4,  // 14: novaroute.v1.RouteControl.Register:input_type -> novaroute.v1.RegisterRequest
 	6,  // 15: novaroute.v1.RouteControl.Deregister:input_type -> novaroute.v1.DeregisterRequest
-	8,  // 16: novaroute.v1.RouteControl.ApplyPeer:input_type -> novaroute.v1.ApplyPeerRequest
-	11, // 17: novaroute.v1.RouteControl.RemovePeer:input_type -> novaroute.v1.RemovePeerRequest
-	13, // 18: novaroute.v1.RouteControl.AdvertisePrefix:input_type -> novaroute.v1.AdvertisePrefixRequest
-	16, // 19: novaroute.v1.RouteControl.WithdrawPrefix:input_type -> novaroute.v1.WithdrawPrefixRequest
-	18, // 20: novaroute.v1.RouteControl.EnableBFD:input_type -> novaroute.v1.EnableBFDRequest
-	20, // 21: novaroute.v1.RouteControl.DisableBFD:input_type -> novaroute.v1.DisableBFDRequest
-	22, // 22: novaroute.v1.RouteControl.EnableOSPF:input_type -> novaroute.v1.EnableOSPFRequest
-	24, // 23: novaroute.v1.RouteControl.DisableOSPF:input_type -> novaroute.v1.DisableOSPFRequest
-	26, // 24: novaroute.v1.RouteControl.GetStatus:input_type -> novaroute.v1.GetStatusRequest
-	33, // 25: novaroute.v1.RouteControl.StreamEvents:input_type -> novaroute.v1.StreamEventsRequest
-	5,  // 26: novaroute.v1.RouteControl.Register:output_type -> novaroute.v1.RegisterResponse
-	7,  // 27: novaroute.v1.RouteControl.Deregister:output_type -> novaroute.v1.DeregisterResponse
-	10, // 28: novaroute.v1.RouteControl.ApplyPeer:output_type -> novaroute.v1.ApplyPeerResponse
-	12, // 29: novaroute.v1.RouteControl.RemovePeer:output_type -> novaroute.v1.RemovePeerResponse
-	15, // 30: novaroute.v1.RouteControl.AdvertisePrefix:output_type -> novaroute.v1.AdvertisePrefixResponse
-	17, // 31: novaroute.v1.RouteControl.WithdrawPrefix:output_type -> novaroute.v1.WithdrawPrefixResponse
-	19, // 32: novaroute.v1.RouteControl.EnableBFD:output_type -> novaroute.v1.EnableBFDResponse
-	21, // 33: novaroute.v1.RouteControl.DisableBFD:output_type -> novaroute.v1.DisableBFDResponse
-	23, // 34: novaroute.v1.RouteControl.EnableOSPF:output_type -> novaroute.v1.EnableOSPFResponse
-	25, // 35: novaroute.v1.RouteControl.DisableOSPF:output_type -> novaroute.v1.DisableOSPFResponse
-	27, // 36: novaroute.v1.RouteControl.GetStatus:output_type -> novaroute.v1.GetStatusResponse
-	34, // 37: novaroute.v1.RouteControl.StreamEvents:output_type -> novaroute.v1.RouteEvent
-	26, // [26:38] is the sub-list for method output_type
-	14, // [14:26] is the sub-list for method input_type
+	8,  // 16: novaroute.v1.RouteControl.ConfigureBGP:input_type -> novaroute.v1.ConfigureBGPRequest
+	10, // 17: novaroute.v1.RouteControl.ApplyPeer:input_type -> novaroute.v1.ApplyPeerRequest
+	13, // 18: novaroute.v1.RouteControl.RemovePeer:input_type -> novaroute.v1.RemovePeerRequest
+	15, // 19: novaroute.v1.RouteControl.AdvertisePrefix:input_type -> novaroute.v1.AdvertisePrefixRequest
+	18, // 20: novaroute.v1.RouteControl.WithdrawPrefix:input_type -> novaroute.v1.WithdrawPrefixRequest
+	20, // 21: novaroute.v1.RouteControl.EnableBFD:input_type -> novaroute.v1.EnableBFDRequest
+	22, // 22: novaroute.v1.RouteControl.DisableBFD:input_type -> novaroute.v1.DisableBFDRequest
+	24, // 23: novaroute.v1.RouteControl.EnableOSPF:input_type -> novaroute.v1.EnableOSPFRequest
+	26, // 24: novaroute.v1.RouteControl.DisableOSPF:input_type -> novaroute.v1.DisableOSPFRequest
+	28, // 25: novaroute.v1.RouteControl.GetStatus:input_type -> novaroute.v1.GetStatusRequest
+	35, // 26: novaroute.v1.RouteControl.StreamEvents:input_type -> novaroute.v1.StreamEventsRequest
+	5,  // 27: novaroute.v1.RouteControl.Register:output_type -> novaroute.v1.RegisterResponse
+	7,  // 28: novaroute.v1.RouteControl.Deregister:output_type -> novaroute.v1.DeregisterResponse
+	9,  // 29: novaroute.v1.RouteControl.ConfigureBGP:output_type -> novaroute.v1.ConfigureBGPResponse
+	12, // 30: novaroute.v1.RouteControl.ApplyPeer:output_type -> novaroute.v1.ApplyPeerResponse
+	14, // 31: novaroute.v1.RouteControl.RemovePeer:output_type -> novaroute.v1.RemovePeerResponse
+	17, // 32: novaroute.v1.RouteControl.AdvertisePrefix:output_type -> novaroute.v1.AdvertisePrefixResponse
+	19, // 33: novaroute.v1.RouteControl.WithdrawPrefix:output_type -> novaroute.v1.WithdrawPrefixResponse
+	21, // 34: novaroute.v1.RouteControl.EnableBFD:output_type -> novaroute.v1.EnableBFDResponse
+	23, // 35: novaroute.v1.RouteControl.DisableBFD:output_type -> novaroute.v1.DisableBFDResponse
+	25, // 36: novaroute.v1.RouteControl.EnableOSPF:output_type -> novaroute.v1.EnableOSPFResponse
+	27, // 37: novaroute.v1.RouteControl.DisableOSPF:output_type -> novaroute.v1.DisableOSPFResponse
+	29, // 38: novaroute.v1.RouteControl.GetStatus:output_type -> novaroute.v1.GetStatusResponse
+	36, // 39: novaroute.v1.RouteControl.StreamEvents:output_type -> novaroute.v1.RouteEvent
+	27, // [27:40] is the sub-list for method output_type
+	14, // [14:27] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
 	14, // [14:14] is the sub-list for extension extendee
 	0,  // [0:14] is the sub-list for field type_name
@@ -2489,7 +2623,7 @@ func file_api_v1_novaroute_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_v1_novaroute_proto_rawDesc), len(file_api_v1_novaroute_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   32,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

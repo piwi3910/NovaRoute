@@ -28,6 +28,52 @@ func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerI
 	return nil
 }
 
+// ReconfigureBGPGlobal changes the BGP AS number and/or router-id at runtime.
+// If the AS has changed from oldAS, it first removes the old BGP instance before
+// creating the new one. All BGP sessions will be torn down and must be
+// re-established by the reconciler.
+func (c *Client) ReconfigureBGPGlobal(ctx context.Context, oldAS, newAS uint32, routerID string) error {
+	if oldAS == newAS {
+		// AS unchanged — just update router-id in place.
+		c.log.Info("updating BGP router-id (AS unchanged)",
+			zap.Uint32("local_as", newAS),
+			zap.String("router_id", routerID),
+		)
+		commands := []string{
+			fmt.Sprintf("router bgp %d", newAS),
+			fmt.Sprintf("bgp router-id %s", routerID),
+		}
+		if err := c.runConfig(ctx, commands); err != nil {
+			return fmt.Errorf("frr: update router-id (AS=%d): %w", newAS, err)
+		}
+		return nil
+	}
+
+	c.log.Info("reconfiguring BGP global (AS change)",
+		zap.Uint32("old_as", oldAS),
+		zap.Uint32("new_as", newAS),
+		zap.String("router_id", routerID),
+	)
+
+	// Remove old BGP instance if it exists.
+	if oldAS != 0 {
+		rmCommands := []string{
+			fmt.Sprintf("no router bgp %d", oldAS),
+		}
+		if err := c.runConfig(ctx, rmCommands); err != nil {
+			return fmt.Errorf("frr: remove old BGP instance (AS=%d): %w", oldAS, err)
+		}
+	}
+
+	// Create new BGP instance.
+	return c.ConfigureBGPGlobal(ctx, newAS, routerID)
+}
+
+// GetLocalAS returns the cached local AS number.
+func (c *Client) GetLocalAS() uint32 {
+	return c.localAS
+}
+
 // AddNeighbor adds a BGP neighbor. The peerType is "internal" or "external".
 // Keepalive and holdTime are in seconds (0 means use FRR defaults).
 func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, peerType string, keepalive, holdTime uint32) error {

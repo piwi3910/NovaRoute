@@ -488,10 +488,43 @@ func (r *Reconciler) SetFRRClient(client *frr.Client) {
 	r.logger.Info("FRR client updated in reconciler")
 }
 
+// UpdateBGPGlobal changes the BGP AS number and router-id at runtime.
+// It returns the previous values. The next reconciliation cycle will detect
+// that BGP needs reconfiguration and apply the change to FRR.
+func (r *Reconciler) UpdateBGPGlobal(localAS uint32, routerID string) (prevAS uint32, prevRouterID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.bgpGlobal == nil {
+		r.bgpGlobal = &BGPGlobalConfig{}
+	}
+
+	prevAS = r.bgpGlobal.LocalAS
+	prevRouterID = r.bgpGlobal.RouterID
+
+	r.bgpGlobal.LocalAS = localAS
+	r.bgpGlobal.RouterID = routerID
+
+	// Reset the bgpConfigured flag so the next reconciliation cycle
+	// re-applies the BGP global config to FRR.
+	r.bgpConfigured = false
+
+	r.logger.Info("BGP global config updated",
+		zap.Uint32("old_as", prevAS),
+		zap.Uint32("new_as", localAS),
+		zap.String("old_router_id", prevRouterID),
+		zap.String("new_router_id", routerID),
+	)
+
+	return prevAS, prevRouterID
+}
+
 // --- FRR application helpers ---
 
 // ensureBGPGlobal configures the BGP instance (router bgp <AS>) in FRR if it
 // hasn't been done yet. This must be called before any peer or prefix operations.
+// It uses ReconfigureBGPGlobal which handles AS changes gracefully by tearing
+// down the old BGP instance before creating the new one.
 func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -511,8 +544,21 @@ func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
 		zap.String("router_id", r.bgpGlobal.RouterID),
 	)
 
-	if err := r.frrClient.ConfigureBGPGlobal(ctx, r.bgpGlobal.LocalAS, r.bgpGlobal.RouterID); err != nil {
+	// Use ReconfigureBGPGlobal which handles AS changes gracefully.
+	oldAS := r.frrClient.GetLocalAS()
+	if err := r.frrClient.ReconfigureBGPGlobal(ctx, oldAS, r.bgpGlobal.LocalAS, r.bgpGlobal.RouterID); err != nil {
 		return fmt.Errorf("configure BGP global: %w", err)
+	}
+
+	// If AS changed, clear applied peers/prefixes so they get re-applied
+	// by the reconciler (the old BGP instance was torn down).
+	if oldAS != 0 && oldAS != r.bgpGlobal.LocalAS {
+		r.logger.Info("BGP AS changed, clearing applied state for re-application",
+			zap.Uint32("old_as", oldAS),
+			zap.Uint32("new_as", r.bgpGlobal.LocalAS),
+		)
+		r.appliedPeers = make(map[string]*intent.PeerIntent)
+		r.appliedPrefixes = make(map[string]*intent.PrefixIntent)
 	}
 
 	r.bgpConfigured = true

@@ -12,6 +12,9 @@ service RouteControl {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Deregister(DeregisterRequest) returns (DeregisterResponse);
 
+  // BGP global configuration
+  rpc ConfigureBGP(ConfigureBGPRequest) returns (ConfigureBGPResponse);
+
   // Peer management
   rpc ApplyPeer(ApplyPeerRequest) returns (ApplyPeerResponse);
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse);
@@ -54,6 +57,20 @@ message DeregisterRequest {
 }
 
 message DeregisterResponse {}
+
+// --- BGP Global Configuration ---
+
+message ConfigureBGPRequest {
+  string owner = 1;
+  string token = 2;
+  uint32 local_as = 3;
+  string router_id = 4;
+}
+
+message ConfigureBGPResponse {
+  uint32 previous_as = 1;
+  string previous_router_id = 2;
+}
 
 // --- Peer Management ---
 
