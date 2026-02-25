@@ -4,7 +4,7 @@
 
 NovaRoute is a unified routing control service that centralizes BGP, BFD, and OSPF management on each Kubernetes node. It acts as a single owner of the FRR (Free Range Routing) daemon, exposing a gRPC API over a Unix domain socket so that multiple clients — NovaEdge (load balancer VIPs), NovaNet (pod/node networking), and human administrators — can safely share one routing stack without conflicting.
 
-> **Status:** MVP 1 complete — BGP peer management, prefix advertisement, ConfigureBGP RPC, and FRR vtysh integration are deployed and running in production.
+> **Status:** Core routing features complete — BGP (peers, prefixes, dynamic AS), BFD, OSPF, intent-based reconciliation, policy engine, and event streaming are implemented and deployed in production. See [Feature Status](#feature-status) for details.
 
 ---
 
@@ -18,8 +18,10 @@ NovaRoute is a unified routing control service that centralizes BGP, BFD, and OS
 - [Ownership Model](#ownership-model)
 - [State Model](#state-model)
 - [Deployment Model](#deployment-model)
-- [Migration Path](#migration-path)
-- [MVP Phasing](#mvp-phasing)
+- [Configuration](#configuration)
+- [CLI](#cli)
+- [Feature Status](#feature-status)
+- [Future Work](#future-work)
 
 ---
 
@@ -64,30 +66,36 @@ NovaRoute solves all of these by owning FRR as the single routing engine and pro
 │  │                                         │          │
 │  │  ┌─────────────────────────────────┐   │          │
 │  │  │  Intent Store (in-memory)       │   │          │
-│  │  │  - owner → prefix → intent     │   │          │
-│  │  │  - peer sessions               │   │          │
-│  │  │  - BFD sessions                │   │          │
+│  │  │  - owner → peers/prefixes      │   │          │
+│  │  │  - BFD/OSPF sessions           │   │          │
 │  │  └─────────────────────────────────┘   │          │
 │  │                                         │          │
 │  │  ┌─────────────────────────────────┐   │          │
 │  │  │  Policy Engine                  │   │          │
-│  │  │  - ownership boundaries         │   │          │
-│  │  │  - prefix validation            │   │          │
-│  │  │  - conflict detection           │   │          │
+│  │  │  - token authentication         │   │          │
+│  │  │  - prefix type validation       │   │          │
+│  │  │  - cross-owner conflict check   │   │          │
 │  │  └─────────────────────────────────┘   │          │
 │  │                                         │          │
 │  │  ┌─────────────────────────────────┐   │          │
-│  │  │  FRR Northbound gRPC Client     │   │          │
-│  │  │  - YANG path-based config       │   │          │
-│  │  │  - candidate/commit model       │   │          │
+│  │  │  Reconciler                     │   │          │
+│  │  │  - desired vs applied diffing   │   │          │
+│  │  │  - periodic + triggered sync    │   │          │
+│  │  └──────────────┬──────────────────┘   │          │
+│  │                 │                      │          │
+│  │  ┌──────────────▼──────────────────┐   │          │
+│  │  │  FRR Client (vtysh CLI)         │   │          │
+│  │  │  - configure terminal batches   │   │          │
+│  │  │  - show commands for status     │   │          │
 │  │  └──────────────┬──────────────────┘   │          │
 │  └─────────────────┼──────────────────────┘          │
 │                    │                                  │
-│                    │ gRPC (localhost / shared socket)  │
+│                    │ vtysh over VTY Unix sockets      │
+│                    │ (/run/frr/zebra.vty, bgpd.vty)  │
 │                    │                                  │
 │  ┌─────────────────▼──────────────────────┐          │
 │  │              FRR Daemon                 │          │
-│  │  (bgpd, bfdd, ospfd, zebra, mgmtd)    │          │
+│  │  (bgpd, ospfd, zebra, mgmtd)          │          │
 │  │                                         │          │
 │  │  TCP 179 ──── BGP sessions ──── Routers│          │
 │  │  BFD ──────── Link detection ────── ↑  │          │
@@ -100,8 +108,8 @@ NovaRoute solves all of these by owning FRR as the single routing engine and pro
 
 | Component | Role |
 |-----------|------|
-| **NovaRoute Agent** | Accepts intents from clients via gRPC, enforces ownership policies, translates intents to FRR configuration via FRR's northbound gRPC API |
-| **FRR** | Production-grade routing suite. Owns all BGP sessions (TCP 179), BFD sessions, OSPF adjacencies. Handles graceful restart, route reflection, etc. |
+| **NovaRoute Agent** | Accepts intents from clients via gRPC, enforces ownership policies, reconciles desired state to FRR via vtysh CLI commands |
+| **FRR** | Production-grade routing suite. Owns all BGP sessions (TCP 179), BFD sessions, OSPF adjacencies. |
 | **Clients** (NovaEdge, NovaNet, Admin) | Submit routing intents (advertise prefix, establish peer, enable BFD) via Unix socket gRPC. Never touch FRR directly. |
 
 ---
@@ -114,15 +122,14 @@ FRR is a shared, stateful resource. NovaRoute is its sole controller. No other p
 
 ### 2. Intent-Based, Not Imperative
 
-Clients declare **what** they want ("advertise 10.0.0.1/32 via BGP"), not **how** to achieve it. NovaRoute translates intents into FRR configuration. This decouples clients from FRR internals and allows NovaRoute to optimize (e.g., batching multiple prefix changes into a single FRR commit).
+Clients declare **what** they want ("advertise 10.0.0.1/32 via BGP"), not **how** to achieve it. NovaRoute translates intents into FRR vtysh commands. This decouples clients from FRR internals.
 
 ### 3. Policy-Safe by Default
 
 Every intent is validated against ownership rules before reaching FRR:
 - NovaEdge can only advertise /32 VIP addresses
 - NovaNet can only advertise pod/node CIDR subnets
-- Overlap between owners is rejected
-- Admin can override with explicit grants
+- Overlap between owners is rejected (admin can override)
 
 ### 4. Ephemeral State, Durable Routing
 
@@ -130,7 +137,7 @@ NovaRoute stores intents in memory only. On restart, clients re-assert their int
 
 ### 5. Observable
 
-A single `novaroutectl status` command shows everything the node is advertising, all peer sessions, BFD status, and which client owns each route. No more guessing across multiple processes.
+A single `novaroutectl status` command shows everything the node is advertising, all peer sessions, BFD status, and which client owns each route.
 
 ---
 
@@ -145,72 +152,53 @@ A single `novaroutectl status` command shows everything the node is advertising,
 | OSPF | Native (ospfd/ospf6d) | None | Full |
 | Graceful Restart | Full | Partial | Full |
 | Production track record | Massive (datacenters, ISPs) | Moderate | Good |
-| Programmatic API | Northbound gRPC (YANG) | gRPC | BIRD socket |
 | License | GPL-2.0 | Apache-2.0 | GPL-2.0 |
 
-FRR is the only option that provides BGP + BFD + OSPF in a single daemon with a programmatic gRPC API. It's the industry standard for software-defined routing on Linux.
+FRR is the only option that provides BGP + BFD + OSPF in a single daemon. It's the industry standard for software-defined routing on Linux.
 
-### FRR Northbound gRPC Interface
+### How NovaRoute Controls FRR
 
-NovaRoute controls FRR via its **northbound gRPC API**, which provides YANG-modeled configuration with a transactional candidate/commit model.
-
-#### Why Northbound gRPC (vs. vtysh, FPM, etc.)
-
-| Interface | Latency | Transactional | Structured | Use Case |
-|-----------|---------|---------------|-----------|----------|
-| **Northbound gRPC** | ~1-5 ms | Yes (candidate/commit) | YANG paths | Programmatic control |
-| vtysh CLI | ~50 ms | No | Text parsing | Human operators |
-| FPM (Forwarding Plane Manager) | ~1 ms | No | Netlink | Route mirroring only |
-| SNMP | ~10 ms | No | MIB OIDs | Monitoring only |
-
-Northbound gRPC is the fastest programmatic interface with full transactional semantics. It uses YANG data paths for structured configuration, avoiding fragile text parsing.
-
-#### Transaction Model
+NovaRoute controls FRR via **vtysh** (the FRR unified shell) over **VTY Unix sockets**. Each FRR daemon creates a `<daemon>.vty` socket in `/run/frr/` that vtysh connects to.
 
 ```
-CreateCandidate(name)     →  candidate_id
-EditCandidate(id, path, value)  →  (repeated for each change)
-Commit(id, phase=ALL)     →  applied atomically
-DeleteCandidate(id)       →  cleanup
+NovaRoute Agent
+    │
+    ├── vtysh --vty_socket /run/frr -c "show bgp summary"     (show commands)
+    │
+    └── vtysh --vty_socket /run/frr -f /tmp/batch.conf         (config batches)
+            │
+            ├── configure terminal
+            ├── router bgp 65011
+            ├──   neighbor 192.168.100.1 remote-as 65000
+            ├──   address-family ipv4 unicast
+            ├──     network 192.168.100.10/32
+            ├──   exit-address-family
+            ├── end
+            └── (applied atomically by vtysh)
 ```
 
-Multiple prefix advertisements and peer configurations are batched into a single candidate and committed atomically. This ensures FRR never sees a partial configuration.
+**Why vtysh instead of FRR's northbound gRPC/YANG API?**
 
-#### YANG Path Mappings
+| Approach | Pros | Cons |
+|----------|------|------|
+| **vtysh CLI** (current) | No extra dependencies, works with stock FRR, simple to debug, reliable | Text output parsing, no transactional candidate/commit |
+| FRR northbound gRPC | YANG-modeled, transactional commits | Requires mgmtd with gRPC compiled, complex protobuf, immature API surface |
 
-NovaRoute translates client intents into FRR YANG paths:
+We chose vtysh for reliability and simplicity. The reconciler's desired-vs-applied diffing provides equivalent consistency guarantees — if a vtysh command fails, the intent remains in the desired state and will be retried on the next reconciliation cycle (every 30 seconds).
 
-**BGP Peer Configuration:**
-```
-/frr-routing:routing/control-plane-protocols/control-plane-protocol
-  [type='frr-bgp:bgp'][name='default']/frr-bgp:bgp/neighbors/neighbor[remote-address='{IP}']
-    /neighbor-remote-as/remote-as-type = external|internal
-    /enabled = true
-    /timers/hold-time = 9
-    /timers/keepalive = 3
-```
+### Implemented FRR Operations
 
-**BGP Network Advertisement:**
-```
-/frr-routing:routing/control-plane-protocols/control-plane-protocol
-  [type='frr-bgp:bgp'][name='default']/frr-bgp:bgp/global/afi-safis/afi-safi
-  [afi-safi-name='frr-routing:ipv4-unicast']/network-config[prefix='{PREFIX}']
-```
-
-**BFD Session:**
-```
-/frr-bfdd:bfdd/bfd/sessions/single-hop[dest-addr='{IP}']
-    /required-min-rx = 300
-    /desired-min-tx = 300
-    /detection-multiplier = 3
-```
-
-**OSPF Interface:**
-```
-/frr-routing:routing/control-plane-protocols/control-plane-protocol
-  [type='frr-ospfd:ospf'][name='default']/frr-ospfd:ospf/areas/area[area-id='{AREA}']
-    /interfaces/interface[name='{IFACE}']/enabled = true
-```
+| Operation | vtysh Commands |
+|-----------|---------------|
+| **BGP global setup** | `router bgp <AS>`, `bgp router-id <ID>` |
+| **BGP AS change** | `no router bgp <old>`, `router bgp <new>` (tears down sessions, reconciler re-applies) |
+| **Add BGP peer** | `neighbor <addr> remote-as <AS>`, timers, eBGP-multihop, password |
+| **Activate AFI** | `address-family ipv4/ipv6 unicast`, `neighbor <addr> activate` |
+| **Advertise prefix** | `network <prefix>` under address-family (auto-detects IPv4/IPv6) |
+| **Withdraw prefix** | `no network <prefix>` |
+| **Add BFD session** | `bfd`, `peer <addr>`, receive/transmit intervals, detect-multiplier |
+| **Enable OSPF** | `ip ospf area <area>` on interface, optional cost/hello/dead timers, passive mode |
+| **FRR readiness** | Checks for `zebra.vty` + `bgpd.vty` sockets in `/run/frr/` |
 
 ---
 
@@ -218,13 +206,19 @@ NovaRoute translates client intents into FRR YANG paths:
 
 NovaRoute exposes a gRPC API over a Unix domain socket at `/run/novaroute/novaroute.sock`.
 
-### Service Definition (Conceptual)
+### Service Definition
+
+All 14 RPCs are fully implemented:
 
 ```protobuf
-syntax = "proto3";
-package novaroute.v1;
-
 service RouteControl {
+  // Session management
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Deregister(DeregisterRequest) returns (DeregisterResponse);
+
+  // BGP global configuration (dynamic AS/router-id at runtime)
+  rpc ConfigureBGP(ConfigureBGPRequest) returns (ConfigureBGPResponse);
+
   // Peer management
   rpc ApplyPeer(ApplyPeerRequest) returns (ApplyPeerResponse);
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse);
@@ -244,122 +238,29 @@ service RouteControl {
   // Observability
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
   rpc StreamEvents(StreamEventsRequest) returns (stream RouteEvent);
-
-  // Session management
-  rpc Register(RegisterRequest) returns (RegisterResponse);
-}
-
-// --- Peer Management ---
-
-message ApplyPeerRequest {
-  string owner = 1;            // "novaedge", "novanet", "admin"
-  string token = 2;            // ownership verification
-  BGPPeer peer = 3;
-}
-
-message BGPPeer {
-  string neighbor_address = 1; // e.g., "192.168.1.1"
-  uint32 remote_as = 2;        // e.g., 65000
-  string peer_type = 3;        // "external" or "internal"
-  uint32 keepalive = 4;        // seconds (default: 3)
-  uint32 hold_time = 5;        // seconds (default: 9)
-  bool bfd_enabled = 6;        // enable BFD for this peer
-  string description = 7;
-}
-
-// --- Prefix Advertisement ---
-
-message AdvertisePrefixRequest {
-  string owner = 1;
-  string token = 2;
-  string prefix = 3;           // e.g., "10.0.0.1/32"
-  string protocol = 4;         // "bgp" or "ospf"
-  map<string, string> attributes = 5; // communities, local-pref, etc.
-}
-
-message WithdrawPrefixRequest {
-  string owner = 1;
-  string token = 2;
-  string prefix = 3;
-  string protocol = 4;
-}
-
-// --- BFD ---
-
-message EnableBFDRequest {
-  string owner = 1;
-  string token = 2;
-  string peer_address = 3;
-  uint32 min_rx = 4;           // microseconds (default: 300000)
-  uint32 min_tx = 5;           // microseconds (default: 300000)
-  uint32 detect_multiplier = 6; // default: 3
-}
-
-// --- OSPF ---
-
-message EnableOSPFRequest {
-  string owner = 1;
-  string token = 2;
-  string interface_name = 3;
-  string area_id = 4;          // e.g., "0.0.0.0"
-  bool passive = 5;            // passive interface (advertise but don't form adjacency)
-}
-
-// --- Observability ---
-
-message GetStatusResponse {
-  repeated PeerStatus peers = 1;
-  repeated PrefixStatus prefixes = 2;
-  repeated BFDStatus bfd_sessions = 3;
-  repeated OSPFStatus ospf_interfaces = 4;
-}
-
-message PeerStatus {
-  string neighbor_address = 1;
-  uint32 remote_as = 2;
-  string state = 3;            // "Established", "Connect", "Active", etc.
-  string owner = 4;
-  uint32 prefixes_received = 5;
-  uint32 prefixes_sent = 6;
-  string uptime = 7;
-}
-
-message PrefixStatus {
-  string prefix = 1;
-  string protocol = 2;
-  string owner = 3;
-  string state = 4;            // "advertised", "pending", "withdrawn"
-}
-
-message RouteEvent {
-  string type = 1;             // "peer_up", "peer_down", "bfd_down", "prefix_added", etc.
-  string detail = 2;
-  int64 timestamp = 3;
-  map<string, string> metadata = 4;
-}
-
-// --- Session Management ---
-
-message RegisterRequest {
-  string owner = 1;            // client identity
-  string token = 2;            // pre-shared token for ownership verification
-  bool reassert_intents = 3;   // true = client will re-send all current intents
-}
-
-message RegisterResponse {
-  string session_id = 1;
-  repeated string current_prefixes = 2;  // what we currently hold for this owner
-  repeated string current_peers = 3;
 }
 ```
+
+### Key Types
+
+**BGP Peer** — full configuration including remote-as, peer type (eBGP/iBGP), timers, address families (IPv4/IPv6 unicast), eBGP-multihop, source address, and password.
+
+**Prefix Attributes** — local-preference, communities, MED, next-hop override.
+
+**BFD Session** — per-peer with configurable min-rx/min-tx (milliseconds) and detect-multiplier. Optional interface binding.
+
+**OSPF Interface** — per-interface with area ID, cost, hello/dead intervals, and passive mode.
+
+**Events** — 13 event types including peer up/down, prefix advertised/withdrawn, BFD up/down, OSPF neighbor changes, FRR connection state, owner registration, and policy violations. Supports filtering by owner and event type.
 
 ### Key API Behaviors
 
 1. **Idempotent operations** — calling `AdvertisePrefix` for an already-advertised prefix is a no-op
 2. **Owner scoping** — all mutations require an owner field; withdrawing another owner's prefix is rejected
-3. **Batch-friendly** — NovaRoute internally batches rapid successive calls into a single FRR commit
-4. **Event streaming** — `StreamEvents` provides real-time peer state changes, BFD notifications, etc.
-5. **Session registration** — on (re)connect, clients call `Register` to get their current state and optionally re-assert all intents
+3. **Token authentication** — every RPC validates the owner's pre-shared token before processing
+4. **Policy enforcement** — prefix type, CIDR restrictions, and cross-owner conflict detection are checked before storing intents
+5. **Event streaming** — `StreamEvents` provides filtered, non-blocking event delivery with per-subscriber buffered channels
+6. **Session registration** — on (re)connect, clients call `Register` to get their current state and optionally re-assert all intents
 
 ---
 
@@ -369,38 +270,47 @@ The ownership model is the core safety mechanism. It prevents clients from inter
 
 ### Ownership Boundaries
 
-| Owner | Allowed Prefixes | Allowed Protocols | Restrictions |
-|-------|-----------------|-------------------|-------------|
-| **novaedge** | /32 host routes only (VIP addresses) | BGP, OSPF | Cannot advertise subnets |
-| **novanet** | Subnet prefixes (/8 - /28) for pod CIDRs and node CIDRs | BGP | Cannot advertise /32 host routes |
-| **admin** | Any prefix | Any | Explicit grants, highest priority |
+| Owner | Allowed Prefixes | Restrictions |
+|-------|-----------------|-------------|
+| **novaedge** | /32 (IPv4) and /128 (IPv6) host routes only | Cannot advertise subnets; optional CIDR allowlist |
+| **novanet** | Subnet prefixes (/8 - /28) | Cannot advertise host routes; optional CIDR allowlist |
+| **admin** | Any prefix length | No restrictions, can override conflicts |
 
 ### Conflict Resolution
 
 1. **Same prefix, same owner** — idempotent update (latest attributes win)
-2. **Same prefix, different owners** — **rejected** with error. Admin must explicitly grant override.
-3. **Peer overlap** — two owners can request the same BGP peer; NovaRoute merges the session (union of address families). Peer is removed only when all owners withdraw it.
-4. **Admin override** — admin-owned routes take priority. If admin advertises a prefix that conflicts with novaedge/novanet, the conflicting client's intent is held (not dropped) and re-applied if admin withdraws.
+2. **Same prefix, different owners** — **rejected** with error, unless the requesting owner is `admin`
+3. **Admin override** — admin-owned prefixes always succeed, even if conflicting with another owner
 
-### Ownership Verification
+### Configuration
 
-Each client authenticates with a pre-shared token configured at NovaRoute startup:
+Each owner authenticates with a pre-shared token:
 
-```yaml
-# /etc/novaroute/config.yaml
-owners:
-  novaedge:
-    token: "${NOVAEDGE_TOKEN}"
-    allowed_prefixes:
-      - type: host_only  # /32 only
-  novanet:
-    token: "${NOVANET_TOKEN}"
-    allowed_prefixes:
-      - type: subnet     # /8 - /28
-  admin:
-    token: "${ADMIN_TOKEN}"
-    allowed_prefixes:
-      - type: any
+```json
+{
+  "owners": {
+    "novaedge": {
+      "token": "${NOVAEDGE_TOKEN}",
+      "allowed_prefixes": {
+        "type": "host_only",
+        "allowed_cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      }
+    },
+    "novanet": {
+      "token": "${NOVANET_TOKEN}",
+      "allowed_prefixes": {
+        "type": "subnet",
+        "allowed_cidrs": ["10.244.0.0/16"]
+      }
+    },
+    "admin": {
+      "token": "${ADMIN_TOKEN}",
+      "allowed_prefixes": {
+        "type": "any"
+      }
+    }
+  }
+}
 ```
 
 ---
@@ -417,14 +327,25 @@ NovaRoute stores all routing intents **in memory only**. There is no database, n
 
 2. **FRR graceful restart preserves routes.** When NovaRoute restarts, FRR continues forwarding with existing routes for a configurable window (default: 120 seconds). This gives clients time to reconnect and re-assert.
 
-3. **No stale state.** Disk persistence creates a risk of stale routes surviving client crashes. With ephemeral state, if a client disconnects without withdrawing, NovaRoute can detect the broken session and optionally clean up (configurable: immediate cleanup vs. grace period).
+3. **No stale state.** Disk persistence creates a risk of stale routes surviving client crashes. With ephemeral state, if a client disconnects without withdrawing, the intents are cleaned up after a configurable grace period (default: 30 seconds).
+
+### Reconciliation
+
+The reconciler runs on a 30-second ticker and can be triggered immediately by any RPC that modifies intents. On each cycle it:
+
+1. Reads all intents from the in-memory store
+2. Compares desired state against applied state (tracked in internal maps)
+3. Calls vtysh to add/remove peers, prefixes, BFD sessions, and OSPF interfaces as needed
+4. Updates the applied state maps
+
+Equality checks detect changes in peer timers, prefix attributes, BFD parameters, and OSPF settings — not just additions/removals.
 
 ### Restart Sequence
 
 ```
 1. NovaRoute crashes or restarts
 2. FRR graceful restart activates → routes held in kernel FIB
-3. NovaRoute starts, connects to FRR via northbound gRPC
+3. NovaRoute starts, waits for FRR VTY sockets to appear
 4. Clients detect broken gRPC stream, reconnect
 5. Clients call Register(reassert_intents=true)
 6. Clients re-send all AdvertisePrefix/ApplyPeer calls
@@ -434,201 +355,125 @@ NovaRoute stores all routing intents **in memory only**. There is no database, n
 Total disruption: 0 seconds (routes never left kernel FIB)
 ```
 
-### Client Disconnect Handling
-
-| Scenario | Behavior |
-|----------|----------|
-| Client disconnects cleanly (calls `Deregister`) | All intents for that owner are withdrawn immediately |
-| Client crashes (gRPC stream breaks) | Grace period (default: 30s), then withdraw all intents for that owner |
-| Client reconnects within grace period | Intents preserved, client re-asserts to confirm |
-| NovaRoute restarts | FRR holds routes; clients reconnect and re-assert |
-
 ---
 
 ## Deployment Model
 
 ### Kubernetes DaemonSet
 
+NovaRoute deploys as a DaemonSet with two containers per pod:
+
 ```yaml
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: novaroute-agent
-  namespace: novaroute-system
-spec:
-  selector:
-    matchLabels:
-      app: novaroute-agent
-  template:
-    metadata:
-      labels:
-        app: novaroute-agent
-    spec:
-      hostNetwork: true
-      containers:
-        # NovaRoute agent — the control plane
-        - name: novaroute-agent
-          image: ghcr.io/piwi3910/novaroute-agent:latest
-          volumeMounts:
-            - name: run
-              mountPath: /run/novaroute
-            - name: frr-sock
-              mountPath: /run/frr
-            - name: config
-              mountPath: /etc/novaroute
-          securityContext:
-            capabilities:
-              add: [NET_ADMIN]
+containers:
+  # NovaRoute agent — the routing control plane
+  - name: novaroute-agent
+    image: ghcr.io/piwi3910/novaroute-agent:latest
+    args: ["--config=/etc/novaroute/config.json"]
+    ports:
+      - name: metrics
+        containerPort: 9102
+    volumeMounts:
+      - name: run           # exposes /run/novaroute/novaroute.sock to host
+        mountPath: /run/novaroute
+      - name: frr-sock      # shared VTY sockets with FRR sidecar
+        mountPath: /run/frr
+      - name: config
+        mountPath: /etc/novaroute
 
-        # FRR sidecar — the routing engine
-        - name: frr
-          image: quay.io/frrouting/frr:10.3.1
-          volumeMounts:
-            - name: frr-sock
-              mountPath: /run/frr
-            - name: frr-config
-              mountPath: /etc/frr
-          securityContext:
-            capabilities:
-              add: [NET_ADMIN, NET_RAW, SYS_ADMIN]
-
-      volumes:
-        - name: run
-          hostPath:
-            path: /run/novaroute
-            type: DirectoryOrCreate
-        - name: frr-sock
-          emptyDir: {}
-        - name: config
-          configMap:
-            name: novaroute-config
-        - name: frr-config
-          configMap:
-            name: novaroute-frr-bootstrap
+  # FRR sidecar — the routing engine
+  - name: frr
+    image: ghcr.io/piwi3910/novaroute-frr:10.5.1
+    volumeMounts:
+      - name: frr-sock      # FRR creates *.vty sockets here
+        mountPath: /run/frr
+      - name: frr-config    # bootstrap daemons + frr.conf
+        mountPath: /etc/frr
 ```
 
-### Why `hostNetwork: true`
+Both containers run with `hostNetwork: true` because FRR needs to bind TCP 179 (BGP), send BFD packets, manage OSPF adjacencies, and modify the kernel FIB directly.
 
-FRR needs to:
-- Bind TCP 179 (BGP) on the host's IP
-- Send/receive BFD packets on host interfaces
-- Manage OSPF adjacencies on host interfaces
-- Directly modify the kernel FIB (routing table)
+The `frr-sock` emptyDir volume is the bridge: FRR creates `zebra.vty`, `bgpd.vty`, etc. in `/run/frr/`, and NovaRoute's vtysh connects through those sockets.
 
-### Shared Socket Volume
+The `/run/novaroute/novaroute.sock` is exposed to the host via a hostPath volume, so NovaEdge and other clients can connect from their own pods.
 
-The `frr-sock` volume (emptyDir) is shared between the NovaRoute agent and FRR containers. NovaRoute connects to FRR's northbound gRPC socket at `/run/frr/mgmtd_fe.sock` (or the configured address).
+### FRR Bootstrap
 
-The `run` volume exposes `/run/novaroute/novaroute.sock` to the host, where NovaEdge and NovaNet agents connect.
+FRR starts with minimal bootstrap config — NovaRoute handles all runtime configuration:
+
+- **Enabled daemons:** bgpd, ospfd, mgmtd, zebra (watchfrr restarts crashed daemons)
+- **BGP port:** `-p 0` (port 0 = don't bind TCP 179 at startup; NovaRoute configures BGP instance on demand)
+- **Profile:** `datacenter` (tuned defaults for DC deployments)
+- No static BGP/OSPF config in `frr.conf` — everything is applied dynamically via vtysh
 
 ---
 
-## Migration Path
+## Configuration
 
-### From GoBGP (NovaEdge) to NovaRoute
+NovaRoute agent reads a JSON config file (default: `/etc/novaroute/config.json`):
 
-NovaEdge currently embeds GoBGP for VIP announcement. The migration path:
-
-#### Phase 1: Dual-Stack (NovaRoute + GoBGP coexist)
-
-```
-NovaEdge Agent
-  ├── VIP Manager
-  │   ├── GoBGP (existing, default)
-  │   └── NovaRoute client (opt-in via flag)
-  └── Config: bgp_backend: "gobgp" | "novaroute"
-```
-
-- NovaEdge gains a NovaRoute client alongside GoBGP
-- Operators opt-in per cluster with a configuration flag
-- Both paths are tested; NovaRoute path validates end-to-end
-
-#### Phase 2: NovaRoute Default
-
-- Default flips to `novaroute`
-- GoBGP code path remains as fallback
-- Documentation updated
-
-#### Phase 3: GoBGP Removal
-
-- GoBGP dependency removed from NovaEdge
-- NovaRoute becomes the only BGP path
-- `internal/agent/vip/bgp.go` → simplified to NovaRoute gRPC calls
-
-### Code Changes in NovaEdge
-
-The VIP manager's BGP integration (`internal/agent/vip/`) changes from:
-
-```go
-// Before: Direct GoBGP embedding
-type BGPManager struct {
-    server *gobgp.BgpServer
-    // ... complex GoBGP lifecycle management
-}
-
-func (m *BGPManager) AdvertiseVIP(vip net.IP) error {
-    // 50+ lines of GoBGP path construction
+```json
+{
+  "listen_socket": "/run/novaroute/novaroute.sock",
+  "frr": {
+    "socket_dir": "/run/frr",
+    "connect_timeout": 10,
+    "retry_interval": 5
+  },
+  "bgp": {
+    "local_as": 65000,
+    "router_id": "10.0.0.1"
+  },
+  "owners": {
+    "novaedge": {
+      "token": "${NOVAEDGE_TOKEN}",
+      "allowed_prefixes": {
+        "type": "host_only",
+        "allowed_cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      }
+    }
+  },
+  "log_level": "info",
+  "metrics_address": ":9102",
+  "disconnect_grace_period": 30
 }
 ```
 
-To:
+### Environment Variable Support
 
-```go
-// After: NovaRoute client call
-type BGPManager struct {
-    client novaroutepb.RouteControlClient
-}
+- **Token expansion** — `${NOVAEDGE_TOKEN}` in owner tokens is expanded from environment
+- **Router ID expansion** — `${NODE_IP}` in `bgp.router_id` is expanded
+- **Override env vars:**
+  - `NOVAROUTE_BGP_LOCAL_AS` — overrides `bgp.local_as` (used for per-node eBGP AS)
+  - `NOVAROUTE_BGP_ROUTER_ID` — overrides `bgp.router_id`
 
-func (m *BGPManager) AdvertiseVIP(vip net.IP) error {
-    _, err := m.client.AdvertisePrefix(ctx, &novaroutepb.AdvertisePrefixRequest{
-        Owner:    "novaedge",
-        Token:    m.token,
-        Prefix:   vip.String() + "/32",
-        Protocol: "bgp",
-    })
-    return err
-}
-```
+### ConfigureBGP RPC
+
+In addition to static config, clients can dynamically change the BGP AS and router ID at runtime via the `ConfigureBGP` RPC. This is how NovaEdge sets per-node AS numbers for eBGP — the controller knows each node's desired AS and pushes it via this RPC. A change triggers `no router bgp <old>` / `router bgp <new>` in FRR, tearing down and rebuilding all sessions.
 
 ---
 
-## MVP Phasing
+## CLI
 
-### MVP 1: BGP + BFD Core
+`novaroutectl` connects to the NovaRoute Unix socket and provides read-only status commands:
 
-**Goal:** Replace GoBGP in NovaEdge with NovaRoute for VIP advertisement.
+```bash
+# Full status (all owners, all protocols)
+novaroutectl status
 
-**Scope:**
-- NovaRoute agent binary with gRPC server (Unix socket)
-- FRR northbound gRPC client
-- BGP peer management (ApplyPeer, RemovePeer)
-- BGP prefix advertisement (AdvertisePrefix, WithdrawPrefix)
-- BFD session management (EnableBFD, DisableBFD)
-- Ownership model with token authentication
-- Intent store (in-memory)
-- Basic status API (GetStatus)
-- DaemonSet deployment with FRR sidecar
-- `novaroutectl` CLI for debugging
+# BGP peers (optionally filtered by owner)
+novaroutectl peers
+novaroutectl peers --owner novaedge
 
-**Not in MVP 1:** OSPF, event streaming, admin overrides, NovaNet integration.
+# Advertised prefixes
+novaroutectl prefixes
+novaroutectl prefixes --owner novanet
 
-### MVP 2: OSPF + Events
+# BFD sessions
+novaroutectl bfd
 
-**Scope:**
-- OSPF interface management (EnableOSPF, DisableOSPF)
-- Event streaming (StreamEvents)
-- Client disconnect detection and grace period cleanup
-- Admin override/grant mechanism
-- Prometheus metrics endpoint
-
-### MVP 3: NovaNet Integration
-
-**Scope:**
-- NovaNet client integration for pod CIDR advertisement
-- Multi-owner peer sharing (NovaEdge + NovaNet share BGP peer)
-- Full conflict detection and resolution
-- Route policy / route-map management
-- BGP community and local-pref support
+# OSPF interfaces
+novaroutectl ospf
+```
 
 ---
 
@@ -636,37 +481,72 @@ func (m *BGPManager) AdvertiseVIP(vip net.IP) error {
 
 ```
 NovaRoute/
+├── .github/workflows/          # CI and release pipelines
+│   ├── ci.yml                  # Lint, test, build, security scan
+│   └── release.yml             # Multi-arch binaries + Docker image
+├── api/v1/
+│   ├── novaroute.proto         # gRPC service definition (14 RPCs)
+│   ├── novaroute.pb.go         # Generated protobuf code
+│   └── novaroute_grpc.pb.go    # Generated gRPC stubs
 ├── cmd/
 │   ├── novaroute-agent/        # Main agent binary
-│   └── novaroutectl/           # CLI debugging tool
-├── api/
-│   └── v1/                     # Protobuf definitions
-│       └── novaroute.proto
+│   └── novaroutectl/           # CLI tool
 ├── internal/
-│   ├── server/                 # gRPC server (Unix socket)
-│   ├── intent/                 # Intent store (in-memory)
-│   ├── policy/                 # Ownership & prefix validation
-│   ├── frr/                    # FRR northbound gRPC client
-│   │   ├── client.go           # Connection management
-│   │   ├── bgp.go              # BGP YANG path translations
-│   │   ├── bfd.go              # BFD YANG path translations
-│   │   └── ospf.go             # OSPF YANG path translations
-│   ├── reconciler/             # Intent → FRR state reconciliation
-│   └── metrics/                # Prometheus metrics
+│   ├── config/                 # JSON config loading + validation
+│   ├── frr/                    # FRR vtysh client (BGP, BFD, OSPF)
+│   ├── intent/                 # In-memory intent store (thread-safe)
+│   ├── metrics/                # Prometheus metrics
+│   ├── policy/                 # Ownership + prefix policy engine
+│   ├── reconciler/             # Desired→applied state reconciliation
+│   └── server/                 # gRPC handlers + event pub-sub
 ├── deploy/
-│   ├── daemonset.yaml          # Kubernetes DaemonSet
-│   ├── configmap.yaml          # NovaRoute + FRR bootstrap config
-│   └── helm/                   # Helm chart
-├── docs/
-│   ├── architecture.md
-│   ├── api-reference.md
-│   └── migration-guide.md
-├── go.mod
-├── go.sum
-├── Makefile
-├── Dockerfile
+│   ├── daemonset.yaml          # Kubernetes DaemonSet (agent + FRR sidecar)
+│   └── configmap.yaml          # Agent config + FRR bootstrap
+├── Dockerfile                  # Agent image (Go binary + FRR from Alpine)
+├── Dockerfile.frr              # Custom FRR image (built from source)
+├── Makefile                    # Build automation
+├── LICENSE                     # Apache-2.0
 └── README.md
 ```
+
+---
+
+## Feature Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **BGP peer management** | Done | Add/remove peers, timers, eBGP-multihop, password, IPv4/IPv6 AFI |
+| **BGP prefix advertisement** | Done | Advertise/withdraw with attributes (local-pref, communities, MED) |
+| **BGP dynamic AS/router-id** | Done | ConfigureBGP RPC for per-node eBGP AS from controller |
+| **BFD sessions** | Done | Single-hop, configurable intervals and detect-multiplier |
+| **OSPF interfaces** | Done | Per-interface area, cost, hello/dead timers, passive mode |
+| **Intent store** | Done | In-memory, thread-safe, per-owner CRUD |
+| **Policy engine** | Done | Token auth, prefix type validation (host_only/subnet/any), CIDR restrictions, conflict detection |
+| **Reconciler** | Done | 30s periodic + triggered sync, desired-vs-applied diffing, equality checks |
+| **Event streaming** | Done | Pub-sub with owner/type filtering, 13 event types, non-blocking delivery |
+| **gRPC server** | Done | All 14 RPCs implemented, Unix socket transport |
+| **CLI (novaroutectl)** | Done | Read-only status, peers, prefixes, BFD, OSPF commands |
+| **Prometheus metrics** | Done | gRPC duration, policy violations, intent counts, active sessions per owner |
+| **DaemonSet deployment** | Done | Agent + FRR sidecar, ConfigMaps, hostNetwork, rolling update |
+| **CI/CD** | Done | Lint, test, build, security scan, multi-arch release |
+| FRR state monitoring | Not yet | Reconciler compares desired vs its own applied state, does not query FRR for actual state |
+| Real event publishing | Not yet | Events published for API actions, not from FRR state changes (no peer up/down from FRR) |
+| Graceful shutdown | Not yet | No route withdrawal or RPC drain on SIGTERM |
+| Multi-owner peer sharing | Not yet | Two owners requesting the same peer are handled independently |
+| Route-maps / BGP filters | Not yet | No route-map, community filter, or path selection policy support |
+| OSPF authentication | Not yet | |
+| Multi-hop BFD | Not yet | Only single-hop BFD sessions |
+
+---
+
+## Future Work
+
+- **FRR state monitoring** — Parse `show bgp neighbors`, `show bfd peers`, `show ip ospf neighbor` output to detect actual peer states and publish real events
+- **Graceful shutdown** — Withdraw all routes and drain RPCs on SIGTERM
+- **Multi-owner peer sharing** — Merge BGP sessions when multiple owners request the same peer; remove only when all owners withdraw
+- **Route-maps and filters** — BGP route-map, community filter, AS-path filter support
+- **NovaNet integration** — Pod CIDR advertisement with multi-owner coordination
+- **Health check endpoint** — Proper `/healthz` with FRR connectivity status
 
 ---
 
