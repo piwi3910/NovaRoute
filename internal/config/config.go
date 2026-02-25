@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -188,12 +189,34 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// ExpandEnvVars replaces ${VAR} placeholders in owner token strings with
+// ExpandEnvVars replaces ${VAR} placeholders in configuration strings with
 // the corresponding environment variable values. If a referenced variable
 // is not set, the placeholder is replaced with an empty string.
+//
+// Supported fields:
+//   - Owner tokens (e.g., "token": "${NOVAEDGE_TOKEN}")
+//   - bgp.router_id (e.g., "router_id": "${NODE_IP}")
+//
+// Additionally, the following environment variables override config values
+// when set (regardless of what the config file contains):
+//   - NOVAROUTE_BGP_LOCAL_AS  → bgp.local_as (must be a valid uint32)
+//   - NOVAROUTE_BGP_ROUTER_ID → bgp.router_id
 func ExpandEnvVars(cfg *Config) {
 	for name, owner := range cfg.Owners {
 		owner.Token = os.ExpandEnv(owner.Token)
 		cfg.Owners[name] = owner
+	}
+
+	// Expand env vars in router_id string.
+	cfg.BGP.RouterID = os.ExpandEnv(cfg.BGP.RouterID)
+
+	// Explicit env var overrides for BGP fields.
+	if v := os.Getenv("NOVAROUTE_BGP_LOCAL_AS"); v != "" {
+		if as, err := strconv.ParseUint(v, 10, 32); err == nil {
+			cfg.BGP.LocalAS = uint32(as)
+		}
+	}
+	if v := os.Getenv("NOVAROUTE_BGP_ROUTER_ID"); v != "" {
+		cfg.BGP.RouterID = v
 	}
 }
