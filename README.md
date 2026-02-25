@@ -4,7 +4,7 @@
 
 NovaRoute is a unified routing control service that centralizes BGP, BFD, and OSPF management on each Kubernetes node. It acts as a single owner of the FRR (Free Range Routing) daemon, exposing a gRPC API over a Unix domain socket so that multiple clients — NovaEdge (load balancer VIPs), NovaNet (pod/node networking), and human administrators — can safely share one routing stack without conflicting.
 
-> **Status:** Architecture & design phase. This folder will be migrated to its own repository at [github.com/piwi3910/NovaRoute](https://github.com/piwi3910/NovaRoute).
+> **Status:** MVP 1 complete — BGP peer management, prefix advertisement, ConfigureBGP RPC, and FRR vtysh integration are deployed and running in production.
 
 ---
 
@@ -632,7 +632,7 @@ func (m *BGPManager) AdvertiseVIP(vip net.IP) error {
 
 ---
 
-## Repository Structure (Planned)
+## Repository Structure
 
 ```
 NovaRoute/
@@ -672,7 +672,7 @@ NovaRoute/
 
 ## License
 
-TBD (likely Apache-2.0 for the NovaRoute agent; FRR itself is GPL-2.0).
+Apache-2.0. See [LICENSE](LICENSE) for details. FRR itself is GPL-2.0.
 
 ---
 
