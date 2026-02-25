@@ -24,6 +24,7 @@ import (
 // loop (i.e. translate intents into FRR configuration).
 type ReconcilerInterface interface {
 	TriggerReconcile()
+	UpdateBGPGlobal(localAS uint32, routerID string) (prevAS uint32, prevRouterID string)
 }
 
 // Session represents a registered client session.
@@ -206,6 +207,59 @@ func (s *Server) Deregister(ctx context.Context, req *v1.DeregisterRequest) (*v1
 	metrics.RecordEvent("owner_deregistered")
 
 	return &v1.DeregisterResponse{}, nil
+}
+
+// ---------------------------------------------------------------------------
+// BGP Global Configuration
+// ---------------------------------------------------------------------------
+
+// ConfigureBGP dynamically updates the local BGP AS number and router-id.
+// This allows clients like NovaEdge to configure per-node BGP settings at
+// runtime without requiring env vars or config file changes.
+func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) (*v1.ConfigureBGPResponse, error) {
+	start := time.Now()
+	defer func() { metrics.ObserveGRPCDuration("ConfigureBGP", time.Since(start).Seconds()) }()
+
+	owner := req.GetOwner()
+	token := req.GetToken()
+
+	if owner == "" {
+		return nil, status.Error(codes.InvalidArgument, "owner must not be empty")
+	}
+	if token == "" {
+		return nil, status.Error(codes.InvalidArgument, "token must not be empty")
+	}
+	if req.GetLocalAs() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "local_as must not be zero")
+	}
+	if req.GetRouterId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "router_id must not be empty")
+	}
+
+	// Validate token.
+	if err := s.policy.ValidateToken(owner, token); err != nil {
+		metrics.RecordPolicyViolation(owner, "invalid_token")
+		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
+	}
+
+	// Update BGP global config in the reconciler.
+	prevAS, prevRouterID := s.reconciler.UpdateBGPGlobal(req.GetLocalAs(), req.GetRouterId())
+
+	// Trigger reconciliation to apply the change.
+	s.reconciler.TriggerReconcile()
+
+	s.logger.Info("BGP global config updated via RPC",
+		zap.String("owner", owner),
+		zap.Uint32("local_as", req.GetLocalAs()),
+		zap.String("router_id", req.GetRouterId()),
+		zap.Uint32("previous_as", prevAS),
+		zap.String("previous_router_id", prevRouterID),
+	)
+
+	return &v1.ConfigureBGPResponse{
+		PreviousAs:       prevAS,
+		PreviousRouterId: prevRouterID,
+	}, nil
 }
 
 // ---------------------------------------------------------------------------

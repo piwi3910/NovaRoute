@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	RouteControl_Register_FullMethodName        = "/novaroute.v1.RouteControl/Register"
 	RouteControl_Deregister_FullMethodName      = "/novaroute.v1.RouteControl/Deregister"
+	RouteControl_ConfigureBGP_FullMethodName    = "/novaroute.v1.RouteControl/ConfigureBGP"
 	RouteControl_ApplyPeer_FullMethodName       = "/novaroute.v1.RouteControl/ApplyPeer"
 	RouteControl_RemovePeer_FullMethodName      = "/novaroute.v1.RouteControl/RemovePeer"
 	RouteControl_AdvertisePrefix_FullMethodName = "/novaroute.v1.RouteControl/AdvertisePrefix"
@@ -44,6 +45,8 @@ type RouteControlClient interface {
 	// Session management
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Deregister(ctx context.Context, in *DeregisterRequest, opts ...grpc.CallOption) (*DeregisterResponse, error)
+	// BGP global configuration
+	ConfigureBGP(ctx context.Context, in *ConfigureBGPRequest, opts ...grpc.CallOption) (*ConfigureBGPResponse, error)
 	// Peer management
 	ApplyPeer(ctx context.Context, in *ApplyPeerRequest, opts ...grpc.CallOption) (*ApplyPeerResponse, error)
 	RemovePeer(ctx context.Context, in *RemovePeerRequest, opts ...grpc.CallOption) (*RemovePeerResponse, error)
@@ -83,6 +86,16 @@ func (c *routeControlClient) Deregister(ctx context.Context, in *DeregisterReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeregisterResponse)
 	err := c.cc.Invoke(ctx, RouteControl_Deregister_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *routeControlClient) ConfigureBGP(ctx context.Context, in *ConfigureBGPRequest, opts ...grpc.CallOption) (*ConfigureBGPResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfigureBGPResponse)
+	err := c.cc.Invoke(ctx, RouteControl_ConfigureBGP_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +222,8 @@ type RouteControlServer interface {
 	// Session management
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Deregister(context.Context, *DeregisterRequest) (*DeregisterResponse, error)
+	// BGP global configuration
+	ConfigureBGP(context.Context, *ConfigureBGPRequest) (*ConfigureBGPResponse, error)
 	// Peer management
 	ApplyPeer(context.Context, *ApplyPeerRequest) (*ApplyPeerResponse, error)
 	RemovePeer(context.Context, *RemovePeerRequest) (*RemovePeerResponse, error)
@@ -239,6 +254,9 @@ func (UnimplementedRouteControlServer) Register(context.Context, *RegisterReques
 }
 func (UnimplementedRouteControlServer) Deregister(context.Context, *DeregisterRequest) (*DeregisterResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Deregister not implemented")
+}
+func (UnimplementedRouteControlServer) ConfigureBGP(context.Context, *ConfigureBGPRequest) (*ConfigureBGPResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfigureBGP not implemented")
 }
 func (UnimplementedRouteControlServer) ApplyPeer(context.Context, *ApplyPeerRequest) (*ApplyPeerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyPeer not implemented")
@@ -323,6 +341,24 @@ func _RouteControl_Deregister_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RouteControlServer).Deregister(ctx, req.(*DeregisterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RouteControl_ConfigureBGP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigureBGPRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouteControlServer).ConfigureBGP(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RouteControl_ConfigureBGP_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouteControlServer).ConfigureBGP(ctx, req.(*ConfigureBGPRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -514,6 +550,10 @@ var RouteControl_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Deregister",
 			Handler:    _RouteControl_Deregister_Handler,
+		},
+		{
+			MethodName: "ConfigureBGP",
+			Handler:    _RouteControl_ConfigureBGP_Handler,
 		},
 		{
 			MethodName: "ApplyPeer",
