@@ -18,6 +18,9 @@ func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerI
 	commands := []string{
 		fmt.Sprintf("router bgp %d", localAS),
 		fmt.Sprintf("bgp router-id %s", routerID),
+		"bgp graceful-restart",
+		"bgp graceful-restart restart-time 120",
+		"bgp graceful-restart stalepath-time 360",
 	}
 
 	if err := c.runConfig(ctx, commands); err != nil {
@@ -42,6 +45,9 @@ func (c *Client) ReconfigureBGPGlobal(ctx context.Context, oldAS, newAS uint32, 
 		commands := []string{
 			fmt.Sprintf("router bgp %d", newAS),
 			fmt.Sprintf("bgp router-id %s", routerID),
+			"bgp graceful-restart",
+			"bgp graceful-restart restart-time 120",
+			"bgp graceful-restart stalepath-time 360",
 		}
 		if err := c.runConfig(ctx, commands); err != nil {
 			return fmt.Errorf("frr: update router-id (AS=%d): %w", newAS, err)
@@ -93,6 +99,14 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 	if keepalive > 0 && holdTime > 0 {
 		commands = append(commands, fmt.Sprintf("neighbor %s timers %d %d", addr, keepalive, holdTime))
 	}
+
+	// Enable soft-reconfiguration inbound so we can re-evaluate routing policy
+	// without tearing down the BGP session.
+	commands = append(commands,
+		"address-family ipv4 unicast",
+		fmt.Sprintf("neighbor %s soft-reconfiguration inbound", addr),
+		"exit-address-family",
+	)
 
 	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: add BGP neighbor %s (AS=%d): %w", addr, remoteAS, err)
@@ -186,6 +200,85 @@ func (c *Client) WithdrawNetwork(ctx context.Context, prefix string, afi string)
 // getLocalAS returns the cached local AS or 0 if not yet known.
 func (c *Client) getLocalAS(_ context.Context) uint32 {
 	return c.localAS
+}
+
+// ConfigurePrefixList creates or replaces an IP prefix-list in FRR.
+// Each entry is a string like "permit 192.168.100.0/24 ge 32 le 32".
+func (c *Client) ConfigurePrefixList(ctx context.Context, name string, entries []string) error {
+	c.log.Info("configuring prefix-list",
+		zap.String("name", name),
+		zap.Int("entries", len(entries)),
+	)
+
+	// Remove the old prefix-list first to ensure clean state.
+	commands := []string{
+		fmt.Sprintf("no ip prefix-list %s", name),
+	}
+
+	for i, entry := range entries {
+		commands = append(commands, fmt.Sprintf("ip prefix-list %s seq %d %s", name, (i+1)*10, entry))
+	}
+
+	if err := c.runConfig(ctx, commands); err != nil {
+		return fmt.Errorf("frr: configure prefix-list %s: %w", name, err)
+	}
+	return nil
+}
+
+// ApplyNeighborPrefixList applies an IP prefix-list to a BGP neighbor for the
+// given direction ("in" or "out") under the specified address family.
+func (c *Client) ApplyNeighborPrefixList(ctx context.Context, addr, prefixListName, direction, afi string) error {
+	afiName := resolveAFICLI(afi)
+
+	c.log.Info("applying prefix-list to neighbor",
+		zap.String("address", addr),
+		zap.String("prefix_list", prefixListName),
+		zap.String("direction", direction),
+		zap.String("afi", afiName),
+	)
+
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("address-family %s", afiName),
+		fmt.Sprintf("neighbor %s prefix-list %s %s", addr, prefixListName, direction),
+		"exit-address-family",
+	}
+
+	if err := c.runConfig(ctx, commands); err != nil {
+		return fmt.Errorf("frr: apply prefix-list %s %s to neighbor %s: %w", prefixListName, direction, addr, err)
+	}
+	return nil
+}
+
+// SetNeighborMaxPrefix configures the maximum number of prefixes accepted
+// from a BGP neighbor. If warningOnly is true, FRR logs a warning instead
+// of tearing down the session when the limit is exceeded.
+func (c *Client) SetNeighborMaxPrefix(ctx context.Context, addr string, maxPrefixes uint32, warningOnly bool, afi string) error {
+	afiName := resolveAFICLI(afi)
+
+	c.log.Info("setting neighbor maximum-prefix",
+		zap.String("address", addr),
+		zap.Uint32("max_prefixes", maxPrefixes),
+		zap.Bool("warning_only", warningOnly),
+		zap.String("afi", afiName),
+	)
+
+	cmd := fmt.Sprintf("neighbor %s maximum-prefix %d", addr, maxPrefixes)
+	if warningOnly {
+		cmd += " warning-only"
+	}
+
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("address-family %s", afiName),
+		cmd,
+		"exit-address-family",
+	}
+
+	if err := c.runConfig(ctx, commands); err != nil {
+		return fmt.Errorf("frr: set max-prefix %d for neighbor %s: %w", maxPrefixes, addr, err)
+	}
+	return nil
 }
 
 // resolveAFICLI maps AFI identifiers to FRR CLI address-family names.

@@ -793,6 +793,22 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 		metrics.RecordFRRTransaction("success", afiDuration)
 	}
 
+	// Apply prefix-list filtering and maximum-prefix safety for each address family.
+	for _, af := range p.AddressFamilies {
+		afiName := resolveAddressFamily(af)
+		if afiName == "" {
+			continue
+		}
+
+		// Set maximum-prefix safety limit (warning-only mode so sessions aren't killed).
+		if err := r.frrClient.SetNeighborMaxPrefix(ctx, p.NeighborAddress, 50, true, afiName); err != nil {
+			r.logger.Warn("failed to set max-prefix for neighbor",
+				zap.String("neighbor", p.NeighborAddress),
+				zap.Error(err),
+			)
+		}
+	}
+
 	r.logger.Info("applied peer intent",
 		zap.String("neighbor", p.NeighborAddress),
 		zap.Uint32("remote_as", p.RemoteAS),
