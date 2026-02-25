@@ -3,6 +3,7 @@ package server
 
 import (
 	"sync"
+	"time"
 
 	pb "github.com/piwi3910/NovaRoute/api/v1"
 )
@@ -89,6 +90,19 @@ func (eb *EventBus) Publish(event *pb.RouteEvent) {
 		default:
 		}
 	}
+}
+
+// PublishRouteEvent creates a RouteEvent from the given parameters and publishes it.
+// This satisfies the reconciler.EventPublisher interface, allowing the EventBus
+// to receive events from the FRR state monitor.
+func (eb *EventBus) PublishRouteEvent(eventType uint32, owner, detail string, metadata map[string]string) {
+	eb.Publish(&pb.RouteEvent{
+		Type:          pb.EventType(eventType),
+		Owner:         owner,
+		Detail:        detail,
+		TimestampUnix: time.Now().Unix(),
+		Metadata:      metadata,
+	})
 }
 
 // matches returns true if the event passes the subscription's filters.

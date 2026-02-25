@@ -162,8 +162,11 @@ func main() {
 
 	// Create gRPC server.
 	grpcServer := grpc.NewServer()
-	server.New(grpcServer, store, policyEngine, rec, logger)
+	srv := server.New(grpcServer, store, policyEngine, rec, logger)
 	logger.Info("gRPC server created")
+
+	// Wire the server's event bus into the reconciler for FRR state change events.
+	rec.SetEventPublisher(srv.EventBus())
 
 	// Remove stale socket file if it exists.
 	socketPath := cfg.ListenSocket
