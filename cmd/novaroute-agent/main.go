@@ -244,6 +244,19 @@ func main() {
 	logger.Info("shutting down gracefully")
 	cancel()
 
+	// Withdraw all applied routing state from FRR before tearing down
+	// the gRPC server and FRR connection. This ensures BGP peers,
+	// advertised prefixes, BFD sessions, and OSPF interfaces are
+	// cleanly removed so upstream routers see graceful withdrawal
+	// rather than abrupt session drops.
+	withdrawCtx, withdrawCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if withdrawErr := rec.WithdrawAll(withdrawCtx); withdrawErr != nil {
+		logger.Warn("WithdrawAll completed with errors", zap.Error(withdrawErr))
+	} else {
+		logger.Info("all routing state withdrawn from FRR")
+	}
+	withdrawCancel()
+
 	// Stop gRPC server gracefully.
 	grpcServer.GracefulStop()
 	logger.Info("gRPC server stopped")

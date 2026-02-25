@@ -7,6 +7,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -486,6 +487,102 @@ func (r *Reconciler) SetFRRClient(client *frr.Client) {
 	defer r.mu.Unlock()
 	r.frrClient = client
 	r.logger.Info("FRR client updated in reconciler")
+}
+
+// WithdrawAll removes all applied routing state from FRR in preparation for
+// graceful shutdown. It withdraws prefixes first, then BFD sessions, then OSPF
+// interfaces, and finally BGP peers. This ordering ensures that dependent
+// configuration (prefixes advertised via peers) is removed before the peers
+// themselves. Errors are collected but do not stop the process; the method
+// returns an aggregated error of all failures.
+func (r *Reconciler) WithdrawAll(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.frrClient == nil {
+		r.logger.Info("WithdrawAll: FRR client is nil, nothing to withdraw")
+		return nil
+	}
+
+	r.logger.Info("WithdrawAll: withdrawing all applied routing state",
+		zap.Int("prefixes", len(r.appliedPrefixes)),
+		zap.Int("bfd_sessions", len(r.appliedBFD)),
+		zap.Int("ospf_interfaces", len(r.appliedOSPF)),
+		zap.Int("peers", len(r.appliedPeers)),
+	)
+
+	var errs []error
+
+	// 1. Withdraw all applied prefixes first.
+	for key, p := range r.appliedPrefixes {
+		if p.Protocol == v1.Protocol_PROTOCOL_BGP {
+			afi := detectAFI(p.Prefix)
+			if err := r.frrClient.WithdrawNetwork(ctx, p.Prefix, afi); err != nil {
+				r.logger.Error("WithdrawAll: failed to withdraw prefix",
+					zap.String("prefix", p.Prefix),
+					zap.Error(err),
+				)
+				errs = append(errs, fmt.Errorf("withdraw prefix %s: %w", p.Prefix, err))
+			} else {
+				r.logger.Info("WithdrawAll: withdrew prefix", zap.String("prefix", p.Prefix))
+			}
+		}
+		delete(r.appliedPrefixes, key)
+	}
+
+	// 2. Remove all applied BFD sessions.
+	for key, b := range r.appliedBFD {
+		if err := r.frrClient.RemoveBFDPeer(ctx, b.PeerAddress); err != nil {
+			r.logger.Error("WithdrawAll: failed to remove BFD peer",
+				zap.String("peer", b.PeerAddress),
+				zap.Error(err),
+			)
+			errs = append(errs, fmt.Errorf("remove BFD peer %s: %w", b.PeerAddress, err))
+		} else {
+			r.logger.Info("WithdrawAll: removed BFD peer", zap.String("peer", b.PeerAddress))
+		}
+		delete(r.appliedBFD, key)
+	}
+
+	// 3. Disable all applied OSPF interfaces.
+	for key, o := range r.appliedOSPF {
+		if err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID); err != nil {
+			r.logger.Error("WithdrawAll: failed to disable OSPF interface",
+				zap.String("interface", o.InterfaceName),
+				zap.String("area", o.AreaID),
+				zap.Error(err),
+			)
+			errs = append(errs, fmt.Errorf("disable OSPF %s (area %s): %w", o.InterfaceName, o.AreaID, err))
+		} else {
+			r.logger.Info("WithdrawAll: disabled OSPF interface",
+				zap.String("interface", o.InterfaceName),
+				zap.String("area", o.AreaID),
+			)
+		}
+		delete(r.appliedOSPF, key)
+	}
+
+	// 4. Remove all applied BGP peers last.
+	for key, p := range r.appliedPeers {
+		if err := r.frrClient.RemoveNeighbor(ctx, p.NeighborAddress); err != nil {
+			r.logger.Error("WithdrawAll: failed to remove BGP peer",
+				zap.String("neighbor", p.NeighborAddress),
+				zap.Error(err),
+			)
+			errs = append(errs, fmt.Errorf("remove peer %s: %w", p.NeighborAddress, err))
+		} else {
+			r.logger.Info("WithdrawAll: removed BGP peer", zap.String("neighbor", p.NeighborAddress))
+		}
+		delete(r.appliedPeers, key)
+	}
+
+	if len(errs) > 0 {
+		r.logger.Error("WithdrawAll: completed with errors", zap.Int("error_count", len(errs)))
+		return fmt.Errorf("WithdrawAll had %d errors: %w", len(errs), errors.Join(errs...))
+	}
+
+	r.logger.Info("WithdrawAll: all routing state withdrawn successfully")
+	return nil
 }
 
 // UpdateBGPGlobal changes the BGP AS number and router-id at runtime.
