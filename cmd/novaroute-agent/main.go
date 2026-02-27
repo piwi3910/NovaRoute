@@ -150,11 +150,6 @@ func main() {
 	}
 	rec := reconciler.NewReconciler(store, nil, logger, bgpGlobal)
 
-	// Start reconciler loop immediately. It will skip FRR operations until
-	// the client is set.
-	rec.RunLoop(ctx, 30*time.Second)
-	logger.Info("reconciler loop started")
-
 	// Create gRPC server.
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(recoveryUnaryInterceptor(logger)),
@@ -170,7 +165,12 @@ func main() {
 	}
 
 	// Wire the server's event bus into the reconciler for FRR state change events.
+	// This must happen BEFORE RunLoop so early reconciliation cycles can publish events.
 	rec.SetEventPublisher(srv.EventBus())
+
+	// Start reconciler loop. It will skip FRR operations until the client is set.
+	rec.RunLoop(ctx, 30*time.Second)
+	logger.Info("reconciler loop started")
 
 	// When FRR connects, update the reconciler and server with the FRR client
 	// and trigger an initial reconcile.
@@ -243,6 +243,15 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	metricsMux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if frrClient != nil && frrClient.IsReady() {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ready"))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("not ready: FRR not connected"))
+		}
+	})
 
 	metricsServer := &http.Server{
 		Addr:              cfg.MetricsAddress,
@@ -272,6 +281,10 @@ func main() {
 	// Graceful shutdown.
 	logger.Info("shutting down gracefully")
 	cancel()
+
+	// Wait for reconciler loop to exit before withdrawing state.
+	rec.WaitForStop()
+	logger.Info("reconciler loop stopped")
 
 	// Withdraw all applied routing state from FRR before tearing down
 	// the gRPC server and FRR connection. This ensures BGP peers,

@@ -182,7 +182,7 @@ func TestAddNeighbor(t *testing.T) {
 	ctx := context.Background()
 	client.localAS = 65000
 
-	err := client.AddNeighbor(ctx, "192.168.1.1", 65001, "external", 30, 90)
+	err := client.AddNeighbor(ctx, "192.168.1.1", 65001, "external", 30, 90, nil)
 	if err != nil {
 		t.Fatalf("AddNeighbor error: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestAddNeighborDefaultTimers(t *testing.T) {
 	ctx := context.Background()
 	client.localAS = 65000
 
-	err := client.AddNeighbor(ctx, "10.0.0.2", 65002, "internal", 0, 0)
+	err := client.AddNeighbor(ctx, "10.0.0.2", 65002, "internal", 0, 0, nil)
 	if err != nil {
 		t.Fatalf("AddNeighbor error: %v", err)
 	}
@@ -210,6 +210,29 @@ func TestAddNeighborDefaultTimers(t *testing.T) {
 	if strings.Contains(stdin, "timers") {
 		t.Errorf("unexpected timers command in stdin:\n%s", stdin)
 	}
+}
+
+func TestAddNeighborWithConfig(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+	client.localAS = 65000
+
+	cfg := &NeighborConfig{
+		SourceAddress: "10.0.0.1",
+		EBGPMultihop:  2,
+		Password:      "secret",
+		Description:   "test peer",
+	}
+	err := client.AddNeighbor(ctx, "192.168.1.1", 65001, "external", 30, 90, cfg)
+	if err != nil {
+		t.Fatalf("AddNeighbor error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 update-source 10.0.0.1")
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 ebgp-multihop 2")
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 password secret")
+	assertStdinContains(t, stdin, "neighbor 192.168.1.1 description test peer")
 }
 
 func TestRemoveNeighbor(t *testing.T) {

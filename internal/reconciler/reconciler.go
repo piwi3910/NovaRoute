@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,9 @@ type Reconciler struct {
 
 	// triggerCh signals an immediate reconciliation.
 	triggerCh chan struct{}
+
+	// doneCh is closed when the reconciler loop exits.
+	doneCh chan struct{}
 }
 
 // NewReconciler creates a new Reconciler that reads intents from the given
@@ -77,6 +81,7 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 		lastBFDStates:   make(map[string]string),
 		lastOSPFStates:  make(map[string]string),
 		triggerCh:        make(chan struct{}, 1),
+		doneCh:          make(chan struct{}),
 	}
 }
 
@@ -427,7 +432,8 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 		return nil
 
 	case "prefix":
-		// key is expected to be the full prefixKey (e.g. "bgp:10.0.0.0/24")
+		// key format: "protocol:prefix" (e.g. "bgp:10.0.0.0/24").
+		// The applied map uses "prefix:protocol:prefix" format.
 		mapKey := "prefix:" + key
 		ap, ok := r.appliedPrefixes[mapKey]
 		if !ok {
@@ -473,6 +479,7 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 // The loop runs until the context is cancelled.
 func (r *Reconciler) RunLoop(ctx context.Context, interval time.Duration) {
 	go func() {
+		defer close(r.doneCh)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -496,6 +503,11 @@ func (r *Reconciler) RunLoop(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// WaitForStop blocks until the reconciler loop has exited.
+func (r *Reconciler) WaitForStop() {
+	<-r.doneCh
 }
 
 // TriggerReconcile triggers an immediate reconciliation cycle. If a
@@ -560,7 +572,7 @@ func (r *Reconciler) findOSPFOwnerByNeighbor(iface string) string {
 // monitorFRRState queries FRR for current BGP neighbor, BFD peer, and OSPF
 // neighbor state, compares with the last-known state, and publishes events
 // for any changes. It is called at the end of each successful reconciliation
-// cycle and must NOT be called while holding r.mu.
+// cycle. It acquires r.mu internally.
 func (r *Reconciler) monitorFRRState(ctx context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -573,6 +585,7 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 	bgpNeighbors, err := r.frrClient.GetBGPNeighbors(ctx)
 	if err != nil {
 		r.logger.Debug("failed to get BGP neighbors for monitoring", zap.Error(err))
+		metrics.RecordMonitoringError("bgp")
 	} else {
 		for _, nbr := range bgpNeighbors {
 			prev, existed := r.lastBGPStates[nbr.Address]
@@ -594,6 +607,7 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 	bfdPeers, err := r.frrClient.GetBFDPeers(ctx)
 	if err != nil {
 		r.logger.Debug("failed to get BFD peers for monitoring", zap.Error(err))
+		metrics.RecordMonitoringError("bfd")
 	} else {
 		for _, peer := range bfdPeers {
 			prev, existed := r.lastBFDStates[peer.PeerAddress]
@@ -612,6 +626,7 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 	ospfNeighbors, err := r.frrClient.GetOSPFNeighbors(ctx)
 	if err != nil {
 		r.logger.Debug("failed to get OSPF neighbors for monitoring", zap.Error(err))
+		metrics.RecordMonitoringError("ospf")
 	} else {
 		for _, nbr := range ospfNeighbors {
 			prev, existed := r.lastOSPFStates[nbr.NeighborID]
@@ -723,6 +738,12 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 	}
 
 	r.logger.Info("WithdrawAll: all routing state withdrawn successfully")
+
+	// Clear monitoring state to avoid spurious events on restart.
+	r.lastBGPStates = make(map[string]string)
+	r.lastBFDStates = make(map[string]string)
+	r.lastOSPFStates = make(map[string]string)
+
 	return nil
 }
 
@@ -794,6 +815,8 @@ func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
 		r.logger.Info("BGP AS changed, clearing applied state for re-application",
 			zap.Uint32("old_as", oldAS),
 			zap.Uint32("new_as", r.bgpGlobal.LocalAS),
+			zap.Int("peers_cleared", len(r.appliedPeers)),
+			zap.Int("prefixes_cleared", len(r.appliedPrefixes)),
 		)
 		r.appliedPeers = make(map[string]*intent.PeerIntent)
 		r.appliedPrefixes = make(map[string]*intent.PrefixIntent)
@@ -809,8 +832,14 @@ func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
 func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) error {
 	peerType := resolvePeerType(p.PeerType)
 
+	nbrCfg := &frr.NeighborConfig{
+		SourceAddress: p.SourceAddress,
+		EBGPMultihop:  p.EBGPMultihop,
+		Password:      p.Password,
+		Description:   p.Description,
+	}
 	start := time.Now()
-	err := r.frrClient.AddNeighbor(ctx, p.NeighborAddress, p.RemoteAS, peerType, p.Keepalive, p.HoldTime)
+	err := r.frrClient.AddNeighbor(ctx, p.NeighborAddress, p.RemoteAS, peerType, p.Keepalive, p.HoldTime, nbrCfg)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
@@ -845,7 +874,11 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 		}
 
 		// Set maximum-prefix safety limit (warning-only mode so sessions aren't killed).
-		if err := r.frrClient.SetNeighborMaxPrefix(ctx, p.NeighborAddress, 50, true, afiName); err != nil {
+		maxPfx := p.MaxPrefixes
+		if maxPfx == 0 {
+			maxPfx = 1000 // Default safety limit.
+		}
+		if err := r.frrClient.SetNeighborMaxPrefix(ctx, p.NeighborAddress, maxPfx, true, afiName); err != nil {
 			return fmt.Errorf("set max-prefix for neighbor %s (afi=%s): %w", p.NeighborAddress, afiName, err)
 		}
 	}
@@ -882,19 +915,56 @@ func (r *Reconciler) applyPrefixIntent(ctx context.Context, p *intent.PrefixInte
 	case v1.Protocol_PROTOCOL_BGP:
 		afi := detectAFI(p.Prefix)
 
-		start := time.Now()
-		err := r.frrClient.AdvertiseNetwork(ctx, p.Prefix, afi)
-		duration := time.Since(start).Seconds()
+		// Check if prefix has BGP attributes that need a route-map.
+		hasAttributes := p.LocalPreference > 0 || len(p.Communities) > 0 || p.MED > 0 || p.NextHop != ""
 
-		if err != nil {
-			metrics.RecordFRRTransaction("failure", duration)
-			return fmt.Errorf("advertise network %s: %w", p.Prefix, err)
+		if hasAttributes {
+			// Build route-map set commands for the prefix attributes.
+			rmName := "NR-PFX-" + strings.ReplaceAll(strings.ReplaceAll(p.Prefix, "/", "-"), ":", "-")
+			var setCmds []string
+			if p.LocalPreference > 0 {
+				setCmds = append(setCmds, fmt.Sprintf("set local-preference %d", p.LocalPreference))
+			}
+			if len(p.Communities) > 0 {
+				setCmds = append(setCmds, fmt.Sprintf("set community %s", strings.Join(p.Communities, " ")))
+			}
+			if p.MED > 0 {
+				setCmds = append(setCmds, fmt.Sprintf("set metric %d", p.MED))
+			}
+			if p.NextHop != "" {
+				setCmds = append(setCmds, fmt.Sprintf("set ip next-hop %s", p.NextHop))
+			}
+
+			rmStart := time.Now()
+			if rmErr := r.frrClient.ConfigureRouteMap(ctx, rmName, setCmds); rmErr != nil {
+				metrics.RecordFRRTransaction("failure", time.Since(rmStart).Seconds())
+				return fmt.Errorf("configure route-map for prefix %s: %w", p.Prefix, rmErr)
+			}
+			metrics.RecordFRRTransaction("success", time.Since(rmStart).Seconds())
+
+			start := time.Now()
+			err := r.frrClient.AdvertiseNetworkWithRouteMap(ctx, p.Prefix, afi, rmName)
+			duration := time.Since(start).Seconds()
+			if err != nil {
+				metrics.RecordFRRTransaction("failure", duration)
+				return fmt.Errorf("advertise network %s with route-map: %w", p.Prefix, err)
+			}
+			metrics.RecordFRRTransaction("success", duration)
+		} else {
+			start := time.Now()
+			err := r.frrClient.AdvertiseNetwork(ctx, p.Prefix, afi)
+			duration := time.Since(start).Seconds()
+			if err != nil {
+				metrics.RecordFRRTransaction("failure", duration)
+				return fmt.Errorf("advertise network %s: %w", p.Prefix, err)
+			}
+			metrics.RecordFRRTransaction("success", duration)
 		}
-		metrics.RecordFRRTransaction("success", duration)
 
 		r.logger.Info("applied BGP prefix intent",
 			zap.String("prefix", p.Prefix),
 			zap.String("owner", p.Owner),
+			zap.Bool("has_attributes", hasAttributes),
 		)
 
 	case v1.Protocol_PROTOCOL_OSPF:
@@ -1126,6 +1196,9 @@ func peerEqual(a, b *intent.PeerIntent) bool {
 		return false
 	}
 	if a.SourceAddress != b.SourceAddress {
+		return false
+	}
+	if a.MaxPrefixes != b.MaxPrefixes {
 		return false
 	}
 	if len(a.AddressFamilies) != len(b.AddressFamilies) {

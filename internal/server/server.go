@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -245,6 +246,15 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 		return nil, status.Error(codes.InvalidArgument, "router_id must not be empty")
 	}
 
+	// Validate router_id is a valid unicast IPv4 address.
+	routerIP := net.ParseIP(req.GetRouterId())
+	if routerIP == nil || routerIP.To4() == nil {
+		return nil, status.Error(codes.InvalidArgument, "router_id must be a valid IPv4 address")
+	}
+	if routerIP.IsMulticast() || routerIP.IsUnspecified() {
+		return nil, status.Errorf(codes.InvalidArgument, "router_id must be a unicast IPv4 address, got %s", req.GetRouterId())
+	}
+
 	// Validate token.
 	if err := s.policy.ValidateToken(owner, token); err != nil {
 		metrics.RecordPolicyViolation(owner, "invalid_token")
@@ -262,6 +272,21 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 
 	// Trigger reconciliation to apply the change.
 	s.reconciler.TriggerReconcile()
+
+	// Publish BGP configured event.
+	s.eventBus.Publish(&v1.RouteEvent{
+		Type:          v1.EventType_EVENT_TYPE_FRR_CONNECTED, // Reuse as "BGP config changed" event
+		Detail:        fmt.Sprintf("BGP global config updated: AS=%d router_id=%s (was AS=%d router_id=%s)", req.GetLocalAs(), req.GetRouterId(), prevAS, prevRouterID),
+		TimestampUnix: time.Now().Unix(),
+		Owner:         owner,
+		Metadata: map[string]string{
+			"local_as":           fmt.Sprintf("%d", req.GetLocalAs()),
+			"router_id":         req.GetRouterId(),
+			"previous_as":       fmt.Sprintf("%d", prevAS),
+			"previous_router_id": prevRouterID,
+		},
+	})
+	metrics.RecordEvent("bgp_configured")
 
 	s.logger.Info("BGP global config updated via RPC",
 		zap.String("owner", owner),
@@ -301,6 +326,9 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 	}
 	if peer.GetNeighborAddress() == "" {
 		return nil, status.Error(codes.InvalidArgument, "peer neighbor_address must not be empty")
+	}
+	if net.ParseIP(peer.GetNeighborAddress()) == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "peer neighbor_address is not a valid IP address: %s", peer.GetNeighborAddress())
 	}
 	if peer.GetRemoteAs() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "peer remote_as must not be zero")
@@ -345,6 +373,9 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 		Password:        peer.GetPassword(),
 	}
 
+	// Set default max-prefix limit if not specified (peer safety).
+	peerIntent.MaxPrefixes = 1000
+
 	// Store intent.
 	if err := s.intentStore.SetPeerIntent(owner, peerIntent); err != nil {
 		s.logger.Error("failed to set peer intent",
@@ -388,6 +419,9 @@ func (s *Server) RemovePeer(ctx context.Context, req *v1.RemovePeerRequest) (*v1
 	if neighborAddr == "" {
 		return nil, status.Error(codes.InvalidArgument, "neighbor_address must not be empty")
 	}
+	if net.ParseIP(neighborAddr) == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "neighbor_address is not a valid IP address: %s", neighborAddr)
+	}
 
 	// Validate token.
 	if err := s.policy.ValidateToken(owner, token); err != nil {
@@ -416,6 +450,19 @@ func (s *Server) RemovePeer(ctx context.Context, req *v1.RemovePeerRequest) (*v1
 
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
+
+	// Publish peer removed event.
+	s.eventBus.Publish(&v1.RouteEvent{
+		Type:          v1.EventType_EVENT_TYPE_PEER_DOWN,
+		Detail:        fmt.Sprintf("peer %s removed by %s", neighborAddr, owner),
+		TimestampUnix: time.Now().Unix(),
+		Owner:         owner,
+		Metadata: map[string]string{
+			"neighbor": neighborAddr,
+			"action":   "removed",
+		},
+	})
+	metrics.RecordEvent("peer_removed")
 
 	s.logger.Info("peer intent removed",
 		zap.String("owner", owner),
@@ -449,6 +496,9 @@ func (s *Server) AdvertisePrefix(ctx context.Context, req *v1.AdvertisePrefixReq
 	}
 	if prefix == "" {
 		return nil, status.Error(codes.InvalidArgument, "prefix must not be empty")
+	}
+	if _, _, err := net.ParseCIDR(prefix); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "prefix is not a valid CIDR: %s", prefix)
 	}
 	if protocol == v1.Protocol_PROTOCOL_UNSPECIFIED {
 		return nil, status.Error(codes.InvalidArgument, "protocol must be specified")
@@ -567,6 +617,9 @@ func (s *Server) WithdrawPrefix(ctx context.Context, req *v1.WithdrawPrefixReque
 	if prefix == "" {
 		return nil, status.Error(codes.InvalidArgument, "prefix must not be empty")
 	}
+	if _, _, err := net.ParseCIDR(prefix); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "prefix is not a valid CIDR: %s", prefix)
+	}
 	if protocol == v1.Protocol_PROTOCOL_UNSPECIFIED {
 		return nil, status.Error(codes.InvalidArgument, "protocol must be specified")
 	}
@@ -638,6 +691,9 @@ func (s *Server) EnableBFD(ctx context.Context, req *v1.EnableBFDRequest) (*v1.E
 	}
 	if req.GetPeerAddress() == "" {
 		return nil, status.Error(codes.InvalidArgument, "peer_address must not be empty")
+	}
+	if net.ParseIP(req.GetPeerAddress()) == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "peer_address is not a valid IP address: %s", req.GetPeerAddress())
 	}
 
 	// Validate token.
@@ -727,6 +783,9 @@ func (s *Server) DisableBFD(ctx context.Context, req *v1.DisableBFDRequest) (*v1
 	if peerAddr == "" {
 		return nil, status.Error(codes.InvalidArgument, "peer_address must not be empty")
 	}
+	if net.ParseIP(peerAddr) == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "peer_address is not a valid IP address: %s", peerAddr)
+	}
 
 	// Validate token.
 	if err := s.policy.ValidateToken(owner, token); err != nil {
@@ -755,6 +814,19 @@ func (s *Server) DisableBFD(ctx context.Context, req *v1.DisableBFDRequest) (*v1
 
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
+
+	// Publish BFD disabled event.
+	s.eventBus.Publish(&v1.RouteEvent{
+		Type:          v1.EventType_EVENT_TYPE_BFD_DOWN,
+		Detail:        fmt.Sprintf("BFD session %s disabled by %s", peerAddr, owner),
+		TimestampUnix: time.Now().Unix(),
+		Owner:         owner,
+		Metadata: map[string]string{
+			"peer_address": peerAddr,
+			"action":       "disabled",
+		},
+	})
+	metrics.RecordEvent("bfd_disabled")
 
 	s.logger.Info("BFD intent disabled",
 		zap.String("owner", owner),
@@ -904,6 +976,19 @@ func (s *Server) DisableOSPF(ctx context.Context, req *v1.DisableOSPFRequest) (*
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
+	// Publish OSPF disabled event.
+	s.eventBus.Publish(&v1.RouteEvent{
+		Type:          v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN,
+		Detail:        fmt.Sprintf("OSPF interface %s disabled by %s", ifaceName, owner),
+		TimestampUnix: time.Now().Unix(),
+		Owner:         owner,
+		Metadata: map[string]string{
+			"interface_name": ifaceName,
+			"action":         "disabled",
+		},
+	})
+	metrics.RecordEvent("ospf_disabled")
+
 	s.logger.Info("OSPF intent disabled",
 		zap.String("owner", owner),
 		zap.String("interface", ifaceName),
@@ -978,6 +1063,16 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 			if bgp, ok := bgpStates[p.NeighborAddress]; ok {
 				ps.State = bgp.State
 				ps.Uptime = bgp.UpTime
+				ps.PrefixesReceived = bgp.PrefixesReceived
+				ps.PrefixesSent = bgp.PrefixesSent
+			}
+			// Enrich with BFD status if available.
+			if p.BFDEnabled {
+				if bfd, ok := bfdStates[p.NeighborAddress]; ok {
+					ps.BfdStatus = bfd.Status
+				} else {
+					ps.BfdStatus = "not found"
+				}
 			}
 			resp.Peers = append(resp.Peers, ps)
 		}
@@ -1008,6 +1103,7 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 			}
 			if bfd, ok := bfdStates[b.PeerAddress]; ok {
 				bs.State = bfd.Status
+				bs.Uptime = bfd.Uptime
 			}
 			resp.BfdSessions = append(resp.BfdSessions, bs)
 		}
@@ -1023,14 +1119,17 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				Owner:         owner,
 				Cost:          o.Cost,
 			}
-			// OSPF state is keyed by neighbor ID, not interface. Match by
-			// checking if any OSPF neighbor is on this interface.
+			// Count OSPF neighbors on this interface and get state.
+			nbrCount := uint32(0)
 			for _, nbr := range ospfStates {
 				if nbr.Interface == o.InterfaceName {
-					os.State = nbr.State
-					break
+					if os.State == "configured" {
+						os.State = nbr.State
+					}
+					nbrCount++
 				}
 			}
+			os.NeighborCount = nbrCount
 			resp.OspfInterfaces = append(resp.OspfInterfaces, os)
 		}
 	}
@@ -1045,6 +1144,7 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 		if version, err := s.frrClient.GetVersion(ctx); err == nil {
 			resp.FrrStatus.Version = version
 		}
+		resp.FrrStatus.Uptime = "available"
 	}
 
 	return resp, nil

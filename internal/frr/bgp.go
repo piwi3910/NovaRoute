@@ -7,6 +7,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// NeighborConfig holds optional BGP neighbor configuration fields.
+type NeighborConfig struct {
+	SourceAddress string
+	EBGPMultihop  uint32
+	Password      string
+	Description   string
+}
+
+// bgpGracefulRestartCommands returns the standard graceful-restart commands.
+func bgpGracefulRestartCommands() []string {
+	return []string{
+		"bgp graceful-restart",
+		"bgp graceful-restart restart-time 120",
+		"bgp graceful-restart stalepath-time 360",
+	}
+}
+
 // ConfigureBGPGlobal creates the BGP instance with the given AS number and
 // router ID. This is equivalent to "router bgp <AS>" + "bgp router-id <ID>".
 func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerID string) error {
@@ -18,10 +35,8 @@ func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerI
 	commands := []string{
 		fmt.Sprintf("router bgp %d", localAS),
 		fmt.Sprintf("bgp router-id %s", routerID),
-		"bgp graceful-restart",
-		"bgp graceful-restart restart-time 120",
-		"bgp graceful-restart stalepath-time 360",
 	}
+	commands = append(commands, bgpGracefulRestartCommands()...)
 
 	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: configure BGP global (AS=%d, router_id=%s): %w", localAS, routerID, err)
@@ -47,10 +62,8 @@ func (c *Client) ReconfigureBGPGlobal(ctx context.Context, oldAS, newAS uint32, 
 		commands := []string{
 			fmt.Sprintf("router bgp %d", newAS),
 			fmt.Sprintf("bgp router-id %s", routerID),
-			"bgp graceful-restart",
-			"bgp graceful-restart restart-time 120",
-			"bgp graceful-restart stalepath-time 360",
 		}
+		commands = append(commands, bgpGracefulRestartCommands()...)
 		if err := c.runConfig(ctx, commands); err != nil {
 			return fmt.Errorf("frr: update router-id (AS=%d): %w", newAS, err)
 		}
@@ -86,7 +99,7 @@ func (c *Client) GetLocalAS() uint32 {
 
 // AddNeighbor adds a BGP neighbor. The peerType is "internal" or "external".
 // Keepalive and holdTime are in seconds (0 means use FRR defaults).
-func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, peerType string, keepalive, holdTime uint32) error {
+func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, peerType string, keepalive, holdTime uint32, cfg *NeighborConfig) error {
 	c.log.Info("adding BGP neighbor",
 		zap.String("address", addr),
 		zap.Uint32("remote_as", remoteAS),
@@ -102,6 +115,21 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 
 	if keepalive > 0 && holdTime > 0 {
 		commands = append(commands, fmt.Sprintf("neighbor %s timers %d %d", addr, keepalive, holdTime))
+	}
+
+	if cfg != nil {
+		if cfg.Description != "" {
+			commands = append(commands, fmt.Sprintf("neighbor %s description %s", addr, cfg.Description))
+		}
+		if cfg.SourceAddress != "" {
+			commands = append(commands, fmt.Sprintf("neighbor %s update-source %s", addr, cfg.SourceAddress))
+		}
+		if cfg.EBGPMultihop > 0 {
+			commands = append(commands, fmt.Sprintf("neighbor %s ebgp-multihop %d", addr, cfg.EBGPMultihop))
+		}
+		if cfg.Password != "" {
+			commands = append(commands, fmt.Sprintf("neighbor %s password %s", addr, cfg.Password))
+		}
 	}
 
 	// Enable soft-reconfiguration inbound so we can re-evaluate routing policy
@@ -289,6 +317,65 @@ func (c *Client) SetNeighborMaxPrefix(ctx context.Context, addr string, maxPrefi
 
 	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: set max-prefix %d for neighbor %s: %w", maxPrefixes, addr, err)
+	}
+	return nil
+}
+
+// ConfigureRouteMap creates or replaces a route-map in FRR with the given
+// set commands. Each setCmd is a complete "set ..." line.
+func (c *Client) ConfigureRouteMap(ctx context.Context, name string, setCmds []string) error {
+	c.log.Info("configuring route-map",
+		zap.String("name", name),
+		zap.Int("set_commands", len(setCmds)),
+	)
+
+	// Remove old route-map first for clean state.
+	commands := []string{
+		fmt.Sprintf("no route-map %s", name),
+		fmt.Sprintf("route-map %s permit 10", name),
+	}
+	commands = append(commands, setCmds...)
+	commands = append(commands, "exit")
+
+	if err := c.runConfig(ctx, commands); err != nil {
+		return fmt.Errorf("frr: configure route-map %s: %w", name, err)
+	}
+	return nil
+}
+
+// AdvertiseNetworkWithRouteMap adds a network prefix with an associated route-map.
+func (c *Client) AdvertiseNetworkWithRouteMap(ctx context.Context, prefix, afi, routeMap string) error {
+	afiName := resolveAFICLI(afi)
+
+	c.log.Info("advertising BGP network with route-map",
+		zap.String("prefix", prefix),
+		zap.String("afi", afiName),
+		zap.String("route_map", routeMap),
+	)
+
+	commands := []string{
+		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("address-family %s", afiName),
+		fmt.Sprintf("network %s route-map %s", prefix, routeMap),
+		"exit-address-family",
+	}
+
+	if err := c.runConfig(ctx, commands); err != nil {
+		return fmt.Errorf("frr: advertise network %s with route-map %s: %w", prefix, routeMap, err)
+	}
+	return nil
+}
+
+// RemoveRouteMap removes a route-map from FRR.
+func (c *Client) RemoveRouteMap(ctx context.Context, name string) error {
+	c.log.Info("removing route-map", zap.String("name", name))
+
+	commands := []string{
+		fmt.Sprintf("no route-map %s", name),
+	}
+
+	if err := c.runConfig(ctx, commands); err != nil {
+		return fmt.Errorf("frr: remove route-map %s: %w", name, err)
 	}
 	return nil
 }
