@@ -280,8 +280,8 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 		Owner:         owner,
 		Metadata: map[string]string{
 			"local_as":           fmt.Sprintf("%d", req.GetLocalAs()),
-			"router_id":         req.GetRouterId(),
-			"previous_as":       fmt.Sprintf("%d", prevAS),
+			"router_id":          req.GetRouterId(),
+			"previous_as":        fmt.Sprintf("%d", prevAS),
 			"previous_router_id": prevRouterID,
 		},
 	})
@@ -370,21 +370,21 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 
 	// Build the intent.
 	peerIntent := &intent.PeerIntent{
-		Owner:           owner,
-		NeighborAddress: peer.GetNeighborAddress(),
-		RemoteAS:        peer.GetRemoteAs(),
-		PeerType:        peer.GetPeerType(),
-		Keepalive:       peer.GetKeepalive(),
-		HoldTime:        peer.GetHoldTime(),
+		Owner:               owner,
+		NeighborAddress:     peer.GetNeighborAddress(),
+		RemoteAS:            peer.GetRemoteAs(),
+		PeerType:            peer.GetPeerType(),
+		Keepalive:           peer.GetKeepalive(),
+		HoldTime:            peer.GetHoldTime(),
 		BFDEnabled:          peer.GetBfdEnabled(),
 		BFDMinRxMs:          peer.GetBfdMinRxMs(),
 		BFDMinTxMs:          peer.GetBfdMinTxMs(),
 		BFDDetectMultiplier: peer.GetBfdDetectMultiplier(),
 		Description:         peer.GetDescription(),
-		AddressFamilies: peer.GetAddressFamilies(),
-		SourceAddress:   peer.GetSourceAddress(),
-		EBGPMultihop:    peer.GetEbgpMultihop(),
-		Password:        peer.GetPassword(),
+		AddressFamilies:     peer.GetAddressFamilies(),
+		SourceAddress:       peer.GetSourceAddress(),
+		EBGPMultihop:        peer.GetEbgpMultihop(),
+		Password:            peer.GetPassword(),
 	}
 
 	// Use client-specified max-prefix, default to 1000 if not set.

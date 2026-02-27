@@ -536,21 +536,21 @@ func newApplyPeerCmd() *cobra.Command {
 			}
 
 			peer := &v1.BGPPeer{
-				NeighborAddress:    neighbor,
-				RemoteAs:           remoteAS,
-				PeerType:           pt,
-				Keepalive:          keepalive,
-				HoldTime:           holdTime,
-				BfdEnabled:         bfdEnabled,
-				BfdMinRxMs:         bfdMinRx,
-				BfdMinTxMs:         bfdMinTx,
+				NeighborAddress:     neighbor,
+				RemoteAs:            remoteAS,
+				PeerType:            pt,
+				Keepalive:           keepalive,
+				HoldTime:            holdTime,
+				BfdEnabled:          bfdEnabled,
+				BfdMinRxMs:          bfdMinRx,
+				BfdMinTxMs:          bfdMinTx,
 				BfdDetectMultiplier: bfdDetectMult,
-				EbgpMultihop:       ebgpMultihop,
-				Password:           password,
-				SourceAddress:      sourceAddr,
-				MaxPrefix:          maxPrefix,
-				AddressFamilies:    afs,
-				Description:        description,
+				EbgpMultihop:        ebgpMultihop,
+				Password:            password,
+				SourceAddress:       sourceAddr,
+				MaxPrefix:           maxPrefix,
+				AddressFamilies:     afs,
+				Description:         description,
 			}
 
 			_, err = client.ApplyPeer(ctx, &v1.ApplyPeerRequest{

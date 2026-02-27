@@ -309,9 +309,9 @@ func main() {
 	// 6b. Remove peer
 	test("RemovePeer 10.0.0.1 as novaedge", func() error {
 		_, err := client.RemovePeer(ctx(), &v1.RemovePeerRequest{
-			Owner:            "novaedge",
-			Token:            "novaedge-test-token-2024",
-			NeighborAddress:  "10.0.0.1",
+			Owner:           "novaedge",
+			Token:           "novaedge-test-token-2024",
+			NeighborAddress: "10.0.0.1",
 		})
 		return err
 	})
