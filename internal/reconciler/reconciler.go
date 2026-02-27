@@ -25,6 +25,13 @@ type EventPublisher interface {
 	PublishRouteEvent(eventType uint32, owner, detail string, metadata map[string]string)
 }
 
+// ospfLastState tracks the last known OSPF neighbor state along with the
+// interface name so we can look up the owner when a neighbor disappears.
+type ospfLastState struct {
+	State     string
+	Interface string
+}
+
 // BGPGlobalConfig holds the BGP AS number and router ID needed to bootstrap
 // the BGP instance in FRR before any neighbors or networks can be added.
 type BGPGlobalConfig struct {
@@ -53,7 +60,7 @@ type Reconciler struct {
 	eventPublisher EventPublisher
 	lastBGPStates  map[string]string // peer addr → state (e.g. "Established", "Idle")
 	lastBFDStates  map[string]string // peer addr → status ("up", "down")
-	lastOSPFStates map[string]string // neighborID → state ("Full", "Down")
+	lastOSPFStates map[string]ospfLastState // neighborID → state + interface
 
 	// triggerCh signals an immediate reconciliation.
 	triggerCh chan struct{}
@@ -79,7 +86,7 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 		appliedOSPF:     make(map[string]*intent.OSPFIntent),
 		lastBGPStates:   make(map[string]string),
 		lastBFDStates:   make(map[string]string),
-		lastOSPFStates:  make(map[string]string),
+		lastOSPFStates:  make(map[string]ospfLastState),
 		triggerCh:        make(chan struct{}, 1),
 		doneCh:          make(chan struct{}),
 	}
@@ -131,9 +138,13 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	}
 
 	duration := time.Since(start).Seconds()
+	metrics.RecordReconcileCycleDuration(duration)
+
+	// Always monitor FRR state for peer/BFD/OSPF changes and publish events,
+	// even when reconciliation had errors, so we don't miss state transitions.
+	r.monitorFRRState(ctx)
 
 	if len(errs) > 0 {
-		metrics.RecordReconcileCycleDuration(duration)
 		r.logger.Error("reconciliation completed with errors",
 			zap.Int("error_count", len(errs)),
 			zap.Duration("duration", time.Since(start)),
@@ -141,13 +152,9 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("reconciliation had %d errors; first: %w", len(errs), errs[0])
 	}
 
-	metrics.RecordReconcileCycleDuration(duration)
 	r.logger.Debug("reconciliation cycle complete",
 		zap.Duration("duration", time.Since(start)),
 	)
-
-	// Monitor FRR state for peer/BFD/OSPF changes and publish events.
-	r.monitorFRRState(ctx)
 
 	return nil
 }
@@ -221,6 +228,22 @@ func (r *Reconciler) ReconcilePrefixes(ctx context.Context, desired []*intent.Pr
 		existing, applied := r.appliedPrefixes[key]
 		if applied && prefixEqual(existing, dp) {
 			continue
+		}
+
+		// Clean up stale route-map if the previously applied prefix had
+		// attributes that the new intent no longer needs.
+		if applied && existing.Protocol == v1.Protocol_PROTOCOL_BGP {
+			oldHasAttrs := existing.LocalPreference > 0 || len(existing.Communities) > 0 || existing.MED > 0 || existing.NextHop != ""
+			if oldHasAttrs {
+				rmName := "NR-PFX-" + strings.ReplaceAll(strings.ReplaceAll(existing.Prefix, "/", "-"), ":", "-")
+				if rmErr := r.frrClient.RemoveRouteMap(ctx, rmName); rmErr != nil {
+					r.logger.Warn("failed to clean up stale route-map during prefix update",
+						zap.String("prefix", existing.Prefix),
+						zap.String("route_map", rmName),
+						zap.Error(rmErr),
+					)
+				}
+			}
 		}
 
 		if err := r.applyPrefixIntent(ctx, dp); err != nil {
@@ -659,27 +682,27 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 		metrics.RecordMonitoringError("ospf")
 	} else {
 		for _, nbr := range ospfNeighbors {
-			prev, existed := r.lastOSPFStates[nbr.NeighborID]
-			if existed && prev != nbr.State {
+			prevInfo, existed := r.lastOSPFStates[nbr.NeighborID]
+			if existed && prevInfo.State != nbr.State {
 				if nbr.State == "Full" {
-					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_UP), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
-				} else if prev == "Full" {
-					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_UP), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prevInfo.State), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prevInfo.State})
+				} else if prevInfo.State == "Full" {
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prevInfo.State), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prevInfo.State})
 				}
 			} else if !existed && nbr.State == "Full" {
 				r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_UP), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is Full", nbr.NeighborID), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State})
 			}
-			r.lastOSPFStates[nbr.NeighborID] = nbr.State
+			r.lastOSPFStates[nbr.NeighborID] = ospfLastState{State: nbr.State, Interface: nbr.Interface}
 		}
 		// Detect OSPF neighbors that disappeared from FRR.
 		currentOSPF := make(map[string]bool, len(ospfNeighbors))
 		for _, nbr := range ospfNeighbors {
 			currentOSPF[nbr.NeighborID] = true
 		}
-		for nbrID, prevState := range r.lastOSPFStates {
+		for nbrID, prevInfo := range r.lastOSPFStates {
 			if !currentOSPF[nbrID] {
-				if prevState == "Full" {
-					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(nbrID), fmt.Sprintf("OSPF neighbor %s disappeared from FRR (was %s)", nbrID, prevState), map[string]string{"neighbor_id": nbrID, "state": "gone", "previous_state": prevState})
+				if prevInfo.State == "Full" {
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(prevInfo.Interface), fmt.Sprintf("OSPF neighbor %s disappeared from FRR (was %s)", nbrID, prevInfo.State), map[string]string{"neighbor_id": nbrID, "state": "gone", "previous_state": prevInfo.State})
 				}
 				delete(r.lastOSPFStates, nbrID)
 			}
@@ -732,6 +755,7 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 							zap.String("route_map", rmName),
 							zap.Error(rmErr),
 						)
+						errs = append(errs, fmt.Errorf("remove route-map %s: %w", rmName, rmErr))
 					}
 				}
 				delete(r.appliedPrefixes, key)
@@ -798,7 +822,7 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 	// Clear monitoring state to avoid spurious events on restart.
 	r.lastBGPStates = make(map[string]string)
 	r.lastBFDStates = make(map[string]string)
-	r.lastOSPFStates = make(map[string]string)
+	r.lastOSPFStates = make(map[string]ospfLastState)
 
 	return nil
 }
@@ -944,14 +968,18 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 		metrics.RecordFRRTransaction("success", time.Since(mpStart).Seconds())
 	}
 
-	// Link BFD session to BGP peer if BFD is enabled.
-	if p.BFDEnabled {
+	// Link or unlink BFD session for the BGP peer.
+	{
 		bfdStart := time.Now()
-		bfdErr := r.frrClient.SetNeighborBFD(ctx, p.NeighborAddress, true)
+		bfdErr := r.frrClient.SetNeighborBFD(ctx, p.NeighborAddress, p.BFDEnabled)
 		bfdDuration := time.Since(bfdStart).Seconds()
 		if bfdErr != nil {
 			metrics.RecordFRRTransaction("failure", bfdDuration)
-			return fmt.Errorf("enable BFD for neighbor %s: %w", p.NeighborAddress, bfdErr)
+			action := "enable"
+			if !p.BFDEnabled {
+				action = "disable"
+			}
+			return fmt.Errorf("%s BFD for neighbor %s: %w", action, p.NeighborAddress, bfdErr)
 		}
 		metrics.RecordFRRTransaction("success", bfdDuration)
 	}

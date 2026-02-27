@@ -110,8 +110,13 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 		zap.Uint32("hold_time", holdTime),
 	)
 
+	localAS := c.getLocalAS(ctx)
+	if localAS == 0 {
+		return fmt.Errorf("frr: cannot add neighbor %s: BGP local AS not configured", addr)
+	}
+
 	commands := []string{
-		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
+		fmt.Sprintf("router bgp %d", localAS),
 		fmt.Sprintf("neighbor %s remote-as %d", addr, remoteAS),
 	}
 
@@ -133,20 +138,6 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 			commands = append(commands, fmt.Sprintf("neighbor %s password %s", addr, cfg.Password))
 		}
 	}
-
-	// Enable soft-reconfiguration inbound so we can re-evaluate routing policy
-	// without tearing down the BGP session.
-	commands = append(commands,
-		"address-family ipv4 unicast",
-		fmt.Sprintf("neighbor %s soft-reconfiguration inbound", addr),
-		"exit-address-family",
-	)
-
-	commands = append(commands,
-		"address-family ipv6 unicast",
-		fmt.Sprintf("neighbor %s soft-reconfiguration inbound", addr),
-		"exit-address-family",
-	)
 
 	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: add BGP neighbor %s (AS=%d): %w", addr, remoteAS, err)
@@ -183,6 +174,9 @@ func (c *Client) ActivateNeighborAFI(ctx context.Context, addr string, afi strin
 		fmt.Sprintf("router bgp %d", c.getLocalAS(ctx)),
 		fmt.Sprintf("address-family %s", afiName),
 		fmt.Sprintf("neighbor %s activate", addr),
+		// Enable soft-reconfiguration inbound so we can re-evaluate routing
+		// policy without tearing down the BGP session.
+		fmt.Sprintf("neighbor %s soft-reconfiguration inbound", addr),
 		"exit-address-family",
 	}
 
@@ -237,10 +231,14 @@ func (c *Client) WithdrawNetwork(ctx context.Context, prefix string, afi string)
 	return nil
 }
 
-// getLocalAS returns the cached local AS or 0 if not yet known.
+// getLocalAS returns the cached local AS. It logs a warning if the local AS
+// has not been configured (returns 0), which would produce invalid FRR commands.
 func (c *Client) getLocalAS(_ context.Context) uint32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.localAS == 0 {
+		c.log.Warn("getLocalAS: BGP local AS not configured, returning 0")
+	}
 	return c.localAS
 }
 

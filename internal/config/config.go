@@ -93,7 +93,7 @@ func DefaultConfig() *Config {
 		},
 		LogLevel:              "info",
 		MetricsAddress:        ":9100",
-		DisconnectGracePeriod: 30,
+		DisconnectGracePeriod: 0,
 		Owners:                make(map[string]OwnerConfig),
 	}
 }
@@ -214,6 +214,8 @@ func ExpandEnvVars(cfg *Config) {
 	if v := os.Getenv("NOVAROUTE_BGP_LOCAL_AS"); v != "" {
 		if as, err := strconv.ParseUint(v, 10, 32); err == nil {
 			cfg.BGP.LocalAS = uint32(as)
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: NOVAROUTE_BGP_LOCAL_AS=%q is not a valid uint32, ignoring: %v\n", v, err)
 		}
 	}
 	if v := os.Getenv("NOVAROUTE_BGP_ROUTER_ID"); v != "" {

@@ -1182,12 +1182,14 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 	}
 	if frrClient != nil {
 		resp.FrrStatus.Connected = frrClient.IsReady()
-		if version, err := frrClient.GetVersion(ctx); err == nil {
-			resp.FrrStatus.Version = version
-		} else {
-			s.logger.Warn("GetStatus: failed to query FRR version", zap.Error(err))
+		if resp.FrrStatus.Connected {
+			if version, err := frrClient.GetVersion(ctx); err == nil {
+				resp.FrrStatus.Version = version
+			} else {
+				s.logger.Warn("GetStatus: failed to query FRR version", zap.Error(err))
+			}
+			resp.FrrStatus.Uptime = time.Since(frrConnectedAt).Truncate(time.Second).String()
 		}
-		resp.FrrStatus.Uptime = time.Since(frrConnectedAt).Truncate(time.Second).String()
 	}
 
 	return resp, nil

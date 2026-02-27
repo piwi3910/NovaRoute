@@ -347,6 +347,91 @@ func TestRemoveBFDPeer(t *testing.T) {
 	assertStdinContains(t, stdin, "no peer 192.168.1.1")
 }
 
+func TestRemoveBFDPeerWithInterface(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+
+	err := client.RemoveBFDPeer(ctx, "192.168.1.1", "eth0")
+	if err != nil {
+		t.Fatalf("RemoveBFDPeer with interface error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no peer 192.168.1.1 interface eth0")
+}
+
+func TestSetNeighborBFDEnable(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+	client.localAS = 65000
+
+	err := client.SetNeighborBFD(ctx, "10.0.0.1", true)
+	if err != nil {
+		t.Fatalf("SetNeighborBFD(true) error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "neighbor 10.0.0.1 bfd")
+}
+
+func TestSetNeighborBFDDisable(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+	client.localAS = 65000
+
+	err := client.SetNeighborBFD(ctx, "10.0.0.1", false)
+	if err != nil {
+		t.Fatalf("SetNeighborBFD(false) error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no neighbor 10.0.0.1 bfd")
+}
+
+func TestSetNeighborMaxPrefix(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+	client.localAS = 65000
+
+	err := client.SetNeighborMaxPrefix(ctx, "10.0.0.1", 500, true, "ipv4-unicast")
+	if err != nil {
+		t.Fatalf("SetNeighborMaxPrefix error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "neighbor 10.0.0.1 maximum-prefix 500 warning-only")
+}
+
+func TestConfigureRouteMap(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+
+	setCmds := []string{"set local-preference 200", "set community 65000:100"}
+	err := client.ConfigureRouteMap(ctx, "NR-PFX-10-0-0-0-24", setCmds)
+	if err != nil {
+		t.Fatalf("ConfigureRouteMap error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "route-map NR-PFX-10-0-0-0-24 permit 10")
+	assertStdinContains(t, stdin, "set local-preference 200")
+	assertStdinContains(t, stdin, "set community 65000:100")
+}
+
+func TestAdvertiseNetworkWithRouteMap(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+	client.localAS = 65000
+
+	err := client.AdvertiseNetworkWithRouteMap(ctx, "10.0.0.0/24", "ipv4-unicast", "NR-PFX-10-0-0-0-24")
+	if err != nil {
+		t.Fatalf("AdvertiseNetworkWithRouteMap error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "network 10.0.0.0/24 route-map NR-PFX-10-0-0-0-24")
+}
+
 // --- OSPF tests ---
 
 func TestOSPFEnableInterface(t *testing.T) {
