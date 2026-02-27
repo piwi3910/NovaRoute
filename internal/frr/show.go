@@ -9,12 +9,14 @@ import (
 
 // BGPNeighborState holds the parsed state of a single BGP neighbor from FRR.
 type BGPNeighborState struct {
-	Address  string
-	RemoteAS uint32
-	State    string // "Established", "Connect", "Idle", etc.
-	UpTime   string
-	MsgRcvd  uint64
-	MsgSent  uint64
+	Address          string
+	RemoteAS         uint32
+	State            string // "Established", "Connect", "Idle", etc.
+	UpTime           string
+	MsgRcvd          uint64
+	MsgSent          uint64
+	PrefixesReceived uint32
+	PrefixesSent     uint32
 }
 
 // BFDPeerState holds the parsed state of a single BFD peer from FRR.
@@ -22,6 +24,7 @@ type BFDPeerState struct {
 	PeerAddress string
 	Interface   string
 	Status      string // "up", "down", "init"
+	Uptime      string
 }
 
 // OSPFNeighborState holds the parsed state of a single OSPF neighbor from FRR.
@@ -77,12 +80,18 @@ func parseBGPNeighborsJSON(data string) ([]BGPNeighborState, error) {
 		return nil, nil
 	}
 
+	type addressFamilyEntry struct {
+		AcceptedPrefixCounter uint32 `json:"acceptedPrefixCounter"`
+		SentPrefixCounter     uint32 `json:"sentPrefixCounter"`
+	}
+
 	type bgpNeighborJSON struct {
-		RemoteAS         uint32 `json:"remoteAs"`
-		BGPState         string `json:"bgpState"`
-		BGPTimerUpString string `json:"bgpTimerUpString"`
-		MsgRcvd          uint64 `json:"msgRcvd"`
-		MsgSent          uint64 `json:"msgSent"`
+		RemoteAS          uint32                        `json:"remoteAs"`
+		BGPState          string                        `json:"bgpState"`
+		BGPTimerUpString  string                        `json:"bgpTimerUpString"`
+		MsgRcvd           uint64                        `json:"msgRcvd"`
+		MsgSent           uint64                        `json:"msgSent"`
+		AddressFamilyInfo map[string]addressFamilyEntry `json:"addressFamilyInfo"`
 	}
 
 	var result []BGPNeighborState
@@ -91,13 +100,20 @@ func parseBGPNeighborsJSON(data string) ([]BGPNeighborState, error) {
 		if err := json.Unmarshal(rawVal, &nbr); err != nil {
 			return nil, fmt.Errorf("parse BGP neighbor %s: %w", addr, err)
 		}
+		var pfxRecv, pfxSent uint32
+		for _, afi := range nbr.AddressFamilyInfo {
+			pfxRecv += afi.AcceptedPrefixCounter
+			pfxSent += afi.SentPrefixCounter
+		}
 		result = append(result, BGPNeighborState{
-			Address:  addr,
-			RemoteAS: nbr.RemoteAS,
-			State:    nbr.BGPState,
-			UpTime:   nbr.BGPTimerUpString,
-			MsgRcvd:  nbr.MsgRcvd,
-			MsgSent:  nbr.MsgSent,
+			Address:          addr,
+			RemoteAS:         nbr.RemoteAS,
+			State:            nbr.BGPState,
+			UpTime:           nbr.BGPTimerUpString,
+			MsgRcvd:          nbr.MsgRcvd,
+			MsgSent:          nbr.MsgSent,
+			PrefixesReceived: pfxRecv,
+			PrefixesSent:     pfxSent,
 		})
 	}
 
@@ -116,6 +132,7 @@ func parseBFDPeersJSON(data string) ([]BFDPeerState, error) {
 		Peer      string `json:"peer"`
 		Interface string `json:"interface"`
 		Status    string `json:"status"`
+		Uptime    string `json:"uptime"`
 	}
 
 	var peers []bfdPeerJSON
@@ -133,6 +150,7 @@ func parseBFDPeersJSON(data string) ([]BFDPeerState, error) {
 			PeerAddress: p.Peer,
 			Interface:   p.Interface,
 			Status:      p.Status,
+			Uptime:      p.Uptime,
 		}
 	}
 
