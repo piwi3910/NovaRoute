@@ -251,6 +251,12 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
 	}
 
+	// Only the admin owner can change global BGP configuration.
+	if owner != "admin" {
+		metrics.RecordPolicyViolation(owner, "bgp_global_denied")
+		return nil, status.Errorf(codes.PermissionDenied, "only the admin owner can modify global BGP configuration")
+	}
+
 	// Update BGP global config in the reconciler.
 	prevAS, prevRouterID := s.reconciler.UpdateBGPGlobal(req.GetLocalAs(), req.GetRouterId())
 
@@ -309,6 +315,17 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 	// Validate peer operation policy.
 	if err := s.policy.ValidatePeerOperation(owner); err != nil {
 		metrics.RecordPolicyViolation(owner, "peer_operation_denied")
+		s.eventBus.Publish(&v1.RouteEvent{
+			Type:          v1.EventType_EVENT_TYPE_POLICY_VIOLATION,
+			Detail:        fmt.Sprintf("peer operation denied for owner %s: %v", owner, err),
+			TimestampUnix: time.Now().Unix(),
+			Owner:         owner,
+			Metadata: map[string]string{
+				"operation": "apply_peer",
+				"neighbor":  peer.GetNeighborAddress(),
+			},
+		})
+		metrics.RecordEvent("policy_violation")
 		return nil, status.Errorf(codes.PermissionDenied, "peer operation denied: %v", err)
 	}
 
@@ -376,6 +393,12 @@ func (s *Server) RemovePeer(ctx context.Context, req *v1.RemovePeerRequest) (*v1
 	if err := s.policy.ValidateToken(owner, token); err != nil {
 		metrics.RecordPolicyViolation(owner, "invalid_token")
 		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
+	}
+
+	// Validate peer operation policy.
+	if err := s.policy.ValidatePeerOperation(owner); err != nil {
+		metrics.RecordPolicyViolation(owner, "peer_operation_denied")
+		return nil, status.Errorf(codes.PermissionDenied, "peer operation denied: %v", err)
 	}
 
 	// Remove intent.
@@ -500,6 +523,19 @@ func (s *Server) AdvertisePrefix(ctx context.Context, req *v1.AdvertisePrefixReq
 	metrics.RecordIntent(owner, "prefix", "set")
 	s.updateOwnerPrefixGauge(owner)
 
+	// Publish prefix advertised event.
+	s.eventBus.Publish(&v1.RouteEvent{
+		Type:          v1.EventType_EVENT_TYPE_PREFIX_ADVERTISED,
+		Detail:        fmt.Sprintf("prefix %s advertised via %s by %s", prefix, protocolStr, owner),
+		TimestampUnix: time.Now().Unix(),
+		Owner:         owner,
+		Metadata: map[string]string{
+			"prefix":   prefix,
+			"protocol": protocolStr,
+		},
+	})
+	metrics.RecordEvent("prefix_advertised")
+
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
@@ -557,6 +593,19 @@ func (s *Server) WithdrawPrefix(ctx context.Context, req *v1.WithdrawPrefixReque
 	metrics.RecordIntent(owner, "prefix", "remove")
 	s.updateOwnerPrefixGauge(owner)
 
+	// Publish prefix withdrawn event.
+	s.eventBus.Publish(&v1.RouteEvent{
+		Type:          v1.EventType_EVENT_TYPE_PREFIX_WITHDRAWN,
+		Detail:        fmt.Sprintf("prefix %s withdrawn from %s by %s", prefix, protocolStr, owner),
+		TimestampUnix: time.Now().Unix(),
+		Owner:         owner,
+		Metadata: map[string]string{
+			"prefix":   prefix,
+			"protocol": protocolStr,
+		},
+	})
+	metrics.RecordEvent("prefix_withdrawn")
+
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
@@ -600,6 +649,17 @@ func (s *Server) EnableBFD(ctx context.Context, req *v1.EnableBFDRequest) (*v1.E
 	// Validate BFD operation policy.
 	if err := s.policy.ValidateBFDOperation(owner); err != nil {
 		metrics.RecordPolicyViolation(owner, "bfd_operation_denied")
+		s.eventBus.Publish(&v1.RouteEvent{
+			Type:          v1.EventType_EVENT_TYPE_POLICY_VIOLATION,
+			Detail:        fmt.Sprintf("BFD operation denied for owner %s: %v", owner, err),
+			TimestampUnix: time.Now().Unix(),
+			Owner:         owner,
+			Metadata: map[string]string{
+				"operation":    "enable_bfd",
+				"peer_address": req.GetPeerAddress(),
+			},
+		})
+		metrics.RecordEvent("policy_violation")
 		return nil, status.Errorf(codes.PermissionDenied, "BFD operation denied: %v", err)
 	}
 
@@ -674,6 +734,12 @@ func (s *Server) DisableBFD(ctx context.Context, req *v1.DisableBFDRequest) (*v1
 		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
 	}
 
+	// Validate BFD operation policy.
+	if err := s.policy.ValidateBFDOperation(owner); err != nil {
+		metrics.RecordPolicyViolation(owner, "bfd_operation_denied")
+		return nil, status.Errorf(codes.PermissionDenied, "BFD operation denied: %v", err)
+	}
+
 	// Remove intent.
 	if err := s.intentStore.RemoveBFDIntent(owner, peerAddr); err != nil {
 		s.logger.Error("failed to remove BFD intent",
@@ -732,6 +798,17 @@ func (s *Server) EnableOSPF(ctx context.Context, req *v1.EnableOSPFRequest) (*v1
 	// Validate OSPF operation policy.
 	if err := s.policy.ValidateOSPFOperation(owner); err != nil {
 		metrics.RecordPolicyViolation(owner, "ospf_operation_denied")
+		s.eventBus.Publish(&v1.RouteEvent{
+			Type:          v1.EventType_EVENT_TYPE_POLICY_VIOLATION,
+			Detail:        fmt.Sprintf("OSPF operation denied for owner %s: %v", owner, err),
+			TimestampUnix: time.Now().Unix(),
+			Owner:         owner,
+			Metadata: map[string]string{
+				"operation":      "enable_ospf",
+				"interface_name": req.GetInterfaceName(),
+			},
+		})
+		metrics.RecordEvent("policy_violation")
 		return nil, status.Errorf(codes.PermissionDenied, "OSPF operation denied: %v", err)
 	}
 
@@ -803,6 +880,12 @@ func (s *Server) DisableOSPF(ctx context.Context, req *v1.DisableOSPFRequest) (*
 	if err := s.policy.ValidateToken(owner, token); err != nil {
 		metrics.RecordPolicyViolation(owner, "invalid_token")
 		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
+	}
+
+	// Validate OSPF operation policy.
+	if err := s.policy.ValidateOSPFOperation(owner); err != nil {
+		metrics.RecordPolicyViolation(owner, "ospf_operation_denied")
+		return nil, status.Errorf(codes.PermissionDenied, "OSPF operation denied: %v", err)
 	}
 
 	// Remove intent.

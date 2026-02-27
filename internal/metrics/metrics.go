@@ -118,15 +118,21 @@ var GRPCRequestDuration = promauto.NewHistogramVec(
 	[]string{"method"},
 )
 
-// Summary
-
-// IntentStoreSize reports the current size of the intent store by type.
-var IntentStoreSize = promauto.NewSummaryVec(
-	prometheus.SummaryOpts{
-		Name: "novaroute_intent_store_size",
-		Help: "Current size of intent store by type.",
+// ReconcileCycleDuration observes the duration of each reconciliation cycle in seconds.
+var ReconcileCycleDuration = promauto.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "novaroute_reconcile_cycle_duration_seconds",
+		Help:    "Reconciliation cycle latency.",
+		Buckets: prometheus.DefBuckets,
 	},
-	[]string{"type"},
+)
+
+// EventsDropped tracks events dropped due to slow subscribers.
+var EventsDropped = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "novaroute_events_dropped_total",
+		Help: "Total events dropped due to slow subscribers.",
+	},
 )
 
 // Helper functions
@@ -189,4 +195,14 @@ func SetFRRConnected(connected bool) {
 // ObserveGRPCDuration observes the gRPC request duration for the given method.
 func ObserveGRPCDuration(method string, duration float64) {
 	GRPCRequestDuration.WithLabelValues(method).Observe(duration)
+}
+
+// RecordReconcileCycleDuration observes a reconciliation cycle duration.
+func RecordReconcileCycleDuration(duration float64) {
+	ReconcileCycleDuration.Observe(duration)
+}
+
+// RecordEventDropped increments the dropped events counter.
+func RecordEventDropped() {
+	EventsDropped.Inc()
 }

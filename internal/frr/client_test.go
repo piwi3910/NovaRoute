@@ -374,7 +374,7 @@ func TestOSPFDisableInterface(t *testing.T) {
 	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
-	err := client.DisableOSPFInterface(ctx, "eth0", "0.0.0.0")
+	err := client.DisableOSPFInterface(ctx, "eth0", "0.0.0.0", false)
 	if err != nil {
 		t.Fatalf("DisableOSPFInterface error: %v", err)
 	}

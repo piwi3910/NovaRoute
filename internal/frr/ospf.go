@@ -49,7 +49,8 @@ func (c *Client) EnableOSPFInterface(ctx context.Context, ifaceName, areaID stri
 }
 
 // DisableOSPFInterface removes OSPF configuration from the specified interface.
-func (c *Client) DisableOSPFInterface(ctx context.Context, ifaceName, areaID string) error {
+// If passive is true, the passive-interface setting is also removed.
+func (c *Client) DisableOSPFInterface(ctx context.Context, ifaceName, areaID string, passive bool) error {
 	c.log.Info("disabling OSPF interface",
 		zap.String("interface", ifaceName),
 		zap.String("area_id", areaID),
@@ -59,8 +60,13 @@ func (c *Client) DisableOSPFInterface(ctx context.Context, ifaceName, areaID str
 		fmt.Sprintf("interface %s", ifaceName),
 		fmt.Sprintf("no ip ospf area %s", areaID),
 		"exit",
-		"router ospf",
-		fmt.Sprintf("no passive-interface %s", ifaceName),
+	}
+
+	if passive {
+		commands = append(commands,
+			"router ospf",
+			fmt.Sprintf("no passive-interface %s", ifaceName),
+		)
 	}
 
 	if err := c.runConfig(ctx, commands); err != nil {

@@ -35,6 +35,18 @@ BFD sessions, and OSPF interfaces.`,
 		newPrefixesCmd(),
 		newBFDCmd(),
 		newOSPFCmd(),
+		newEventsCmd(),
+		newRegisterCmd(),
+		newDeregisterCmd(),
+		newConfigureBGPCmd(),
+		newApplyPeerCmd(),
+		newRemovePeerCmd(),
+		newAdvertiseCmd(),
+		newWithdrawCmd(),
+		newEnableBFDCmd(),
+		newDisableBFDCmd(),
+		newEnableOSPFCmd(),
+		newDisableOSPFCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -307,4 +319,569 @@ func protocolName(p v1.Protocol) string {
 	default:
 		return "unknown"
 	}
+}
+
+// newEventsCmd creates the "events" subcommand.
+func newEventsCmd() *cobra.Command {
+	var ownerFilter string
+	var eventTypes []string
+
+	cmd := &cobra.Command{
+		Use:   "events",
+		Short: "Stream real-time route events",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			stream, err := client.StreamEvents(context.Background(), &v1.StreamEventsRequest{
+				OwnerFilter: ownerFilter,
+				EventTypes:  eventTypes,
+			})
+			if err != nil {
+				return fmt.Errorf("StreamEvents RPC failed: %w", err)
+			}
+
+			for {
+				event, err := stream.Recv()
+				if err != nil {
+					return fmt.Errorf("stream error: %w", err)
+				}
+				ts := time.Unix(event.TimestampUnix, 0).Format(time.RFC3339)
+				owner := event.Owner
+				if owner == "" {
+					owner = "-"
+				}
+				fmt.Printf("[%s] %-35s owner=%-12s %s\n", ts, event.Type.String(), owner, event.Detail)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&ownerFilter, "owner", "", "filter events by owner")
+	cmd.Flags().StringSliceVar(&eventTypes, "types", nil, "filter events by type (comma-separated)")
+	return cmd
+}
+
+// newRegisterCmd creates the "register" subcommand.
+func newRegisterCmd() *cobra.Command {
+	var owner, token string
+	var reassert bool
+
+	cmd := &cobra.Command{
+		Use:   "register",
+		Short: "Register an owner session",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			resp, err := client.Register(ctx, &v1.RegisterRequest{
+				Owner:           owner,
+				Token:           token,
+				ReassertIntents: reassert,
+			})
+			if err != nil {
+				return fmt.Errorf("Register RPC failed: %w", err)
+			}
+
+			fmt.Printf("Registered: session_id=%s\n", resp.SessionId)
+			fmt.Printf("  Current peers:    %v\n", resp.CurrentPeers)
+			fmt.Printf("  Current prefixes: %v\n", resp.CurrentPrefixes)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().BoolVar(&reassert, "reassert", false, "reassert existing intents")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	return cmd
+}
+
+// newDeregisterCmd creates the "deregister" subcommand.
+func newDeregisterCmd() *cobra.Command {
+	var owner, token string
+	var withdrawAll bool
+
+	cmd := &cobra.Command{
+		Use:   "deregister",
+		Short: "Deregister an owner session",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err = client.Deregister(ctx, &v1.DeregisterRequest{
+				Owner:       owner,
+				Token:       token,
+				WithdrawAll: withdrawAll,
+			})
+			if err != nil {
+				return fmt.Errorf("Deregister RPC failed: %w", err)
+			}
+
+			fmt.Printf("Deregistered: owner=%s withdraw_all=%v\n", owner, withdrawAll)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().BoolVar(&withdrawAll, "withdraw-all", false, "withdraw all intents")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	return cmd
+}
+
+// newConfigureBGPCmd creates the "configure-bgp" subcommand.
+func newConfigureBGPCmd() *cobra.Command {
+	var owner, token, routerID string
+	var localAS uint32
+
+	cmd := &cobra.Command{
+		Use:   "configure-bgp",
+		Short: "Configure BGP global settings (AS number, router ID)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			resp, err := client.ConfigureBGP(ctx, &v1.ConfigureBGPRequest{
+				Owner:    owner,
+				Token:    token,
+				LocalAs:  localAS,
+				RouterId: routerID,
+			})
+			if err != nil {
+				return fmt.Errorf("ConfigureBGP RPC failed: %w", err)
+			}
+
+			fmt.Printf("BGP configured: AS=%d router_id=%s\n", localAS, routerID)
+			fmt.Printf("  Previous: AS=%d router_id=%s\n", resp.PreviousAs, resp.PreviousRouterId)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().Uint32Var(&localAS, "local-as", 0, "local AS number (required)")
+	cmd.Flags().StringVar(&routerID, "router-id", "", "BGP router ID (required)")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("local-as")
+	_ = cmd.MarkFlagRequired("router-id")
+	return cmd
+}
+
+// newApplyPeerCmd creates the "apply-peer" subcommand.
+func newApplyPeerCmd() *cobra.Command {
+	var owner, token, neighbor, password, sourceAddr string
+	var remoteAS, keepalive, holdTime, ebgpMultihop uint32
+	var bfdEnabled bool
+
+	cmd := &cobra.Command{
+		Use:   "apply-peer",
+		Short: "Add or update a BGP peer",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			peer := &v1.BGPPeer{
+				NeighborAddress: neighbor,
+				RemoteAs:        remoteAS,
+				PeerType:        v1.PeerType_PEER_TYPE_EXTERNAL,
+				Keepalive:       keepalive,
+				HoldTime:        holdTime,
+				BfdEnabled:      bfdEnabled,
+				EbgpMultihop:    ebgpMultihop,
+				Password:        password,
+				SourceAddress:   sourceAddr,
+				AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+			}
+
+			_, err = client.ApplyPeer(ctx, &v1.ApplyPeerRequest{
+				Owner: owner,
+				Token: token,
+				Peer:  peer,
+			})
+			if err != nil {
+				return fmt.Errorf("ApplyPeer RPC failed: %w", err)
+			}
+
+			fmt.Printf("Peer applied: neighbor=%s remote_as=%d\n", neighbor, remoteAS)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&neighbor, "neighbor", "", "neighbor IP address (required)")
+	cmd.Flags().Uint32Var(&remoteAS, "remote-as", 0, "remote AS number (required)")
+	cmd.Flags().Uint32Var(&keepalive, "keepalive", 0, "keepalive interval (seconds)")
+	cmd.Flags().Uint32Var(&holdTime, "hold-time", 0, "hold time (seconds)")
+	cmd.Flags().BoolVar(&bfdEnabled, "bfd", false, "enable BFD for this peer")
+	cmd.Flags().Uint32Var(&ebgpMultihop, "ebgp-multihop", 0, "eBGP multihop TTL")
+	cmd.Flags().StringVar(&password, "password", "", "BGP session password")
+	cmd.Flags().StringVar(&sourceAddr, "source-address", "", "update source address")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("neighbor")
+	_ = cmd.MarkFlagRequired("remote-as")
+	return cmd
+}
+
+// newRemovePeerCmd creates the "remove-peer" subcommand.
+func newRemovePeerCmd() *cobra.Command {
+	var owner, token, neighbor string
+
+	cmd := &cobra.Command{
+		Use:   "remove-peer",
+		Short: "Remove a BGP peer",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err = client.RemovePeer(ctx, &v1.RemovePeerRequest{
+				Owner:           owner,
+				Token:           token,
+				NeighborAddress: neighbor,
+			})
+			if err != nil {
+				return fmt.Errorf("RemovePeer RPC failed: %w", err)
+			}
+
+			fmt.Printf("Peer removed: neighbor=%s\n", neighbor)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&neighbor, "neighbor", "", "neighbor IP address (required)")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("neighbor")
+	return cmd
+}
+
+// newAdvertiseCmd creates the "advertise" subcommand.
+func newAdvertiseCmd() *cobra.Command {
+	var owner, token, prefix, protocol, nextHop string
+	var communities []string
+	var localPref, med uint32
+
+	cmd := &cobra.Command{
+		Use:   "advertise",
+		Short: "Advertise a prefix",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			proto := v1.Protocol_PROTOCOL_BGP
+			if protocol == "ospf" {
+				proto = v1.Protocol_PROTOCOL_OSPF
+			}
+
+			req := &v1.AdvertisePrefixRequest{
+				Owner:    owner,
+				Token:    token,
+				Prefix:   prefix,
+				Protocol: proto,
+			}
+			if localPref > 0 || med > 0 || nextHop != "" || len(communities) > 0 {
+				req.Attributes = &v1.PrefixAttributes{
+					LocalPreference: localPref,
+					Communities:     communities,
+					Med:             med,
+					NextHop:         nextHop,
+				}
+			}
+
+			_, err = client.AdvertisePrefix(ctx, req)
+			if err != nil {
+				return fmt.Errorf("AdvertisePrefix RPC failed: %w", err)
+			}
+
+			fmt.Printf("Prefix advertised: %s via %s\n", prefix, protocol)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&prefix, "prefix", "", "CIDR prefix (required)")
+	cmd.Flags().StringVar(&protocol, "protocol", "bgp", "protocol (bgp or ospf)")
+	cmd.Flags().Uint32Var(&localPref, "local-pref", 0, "local preference")
+	cmd.Flags().Uint32Var(&med, "med", 0, "MED value")
+	cmd.Flags().StringVar(&nextHop, "next-hop", "", "next-hop address")
+	cmd.Flags().StringSliceVar(&communities, "communities", nil, "BGP communities")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("prefix")
+	return cmd
+}
+
+// newWithdrawCmd creates the "withdraw" subcommand.
+func newWithdrawCmd() *cobra.Command {
+	var owner, token, prefix, protocol string
+
+	cmd := &cobra.Command{
+		Use:   "withdraw",
+		Short: "Withdraw a prefix",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			proto := v1.Protocol_PROTOCOL_BGP
+			if protocol == "ospf" {
+				proto = v1.Protocol_PROTOCOL_OSPF
+			}
+
+			_, err = client.WithdrawPrefix(ctx, &v1.WithdrawPrefixRequest{
+				Owner:    owner,
+				Token:    token,
+				Prefix:   prefix,
+				Protocol: proto,
+			})
+			if err != nil {
+				return fmt.Errorf("WithdrawPrefix RPC failed: %w", err)
+			}
+
+			fmt.Printf("Prefix withdrawn: %s from %s\n", prefix, protocol)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&prefix, "prefix", "", "CIDR prefix (required)")
+	cmd.Flags().StringVar(&protocol, "protocol", "bgp", "protocol (bgp or ospf)")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("prefix")
+	return cmd
+}
+
+// newEnableBFDCmd creates the "enable-bfd" subcommand.
+func newEnableBFDCmd() *cobra.Command {
+	var owner, token, peerAddr, iface string
+	var minRx, minTx, detectMult uint32
+
+	cmd := &cobra.Command{
+		Use:   "enable-bfd",
+		Short: "Enable BFD on a peer",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err = client.EnableBFD(ctx, &v1.EnableBFDRequest{
+				Owner:            owner,
+				Token:            token,
+				PeerAddress:      peerAddr,
+				MinRxMs:          minRx,
+				MinTxMs:          minTx,
+				DetectMultiplier: detectMult,
+				InterfaceName:    iface,
+			})
+			if err != nil {
+				return fmt.Errorf("EnableBFD RPC failed: %w", err)
+			}
+
+			fmt.Printf("BFD enabled: peer=%s\n", peerAddr)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&peerAddr, "peer", "", "peer address (required)")
+	cmd.Flags().StringVar(&iface, "interface", "", "interface name")
+	cmd.Flags().Uint32Var(&minRx, "min-rx", 0, "minimum RX interval (ms)")
+	cmd.Flags().Uint32Var(&minTx, "min-tx", 0, "minimum TX interval (ms)")
+	cmd.Flags().Uint32Var(&detectMult, "detect-multiplier", 0, "detect multiplier")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("peer")
+	return cmd
+}
+
+// newDisableBFDCmd creates the "disable-bfd" subcommand.
+func newDisableBFDCmd() *cobra.Command {
+	var owner, token, peerAddr string
+
+	cmd := &cobra.Command{
+		Use:   "disable-bfd",
+		Short: "Disable BFD on a peer",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err = client.DisableBFD(ctx, &v1.DisableBFDRequest{
+				Owner:       owner,
+				Token:       token,
+				PeerAddress: peerAddr,
+			})
+			if err != nil {
+				return fmt.Errorf("DisableBFD RPC failed: %w", err)
+			}
+
+			fmt.Printf("BFD disabled: peer=%s\n", peerAddr)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&peerAddr, "peer", "", "peer address (required)")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("peer")
+	return cmd
+}
+
+// newEnableOSPFCmd creates the "enable-ospf" subcommand.
+func newEnableOSPFCmd() *cobra.Command {
+	var owner, token, iface, areaID string
+	var passive bool
+	var cost, hello, dead uint32
+
+	cmd := &cobra.Command{
+		Use:   "enable-ospf",
+		Short: "Enable OSPF on an interface",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err = client.EnableOSPF(ctx, &v1.EnableOSPFRequest{
+				Owner:         owner,
+				Token:         token,
+				InterfaceName: iface,
+				AreaId:        areaID,
+				Passive:       passive,
+				Cost:          cost,
+				HelloInterval: hello,
+				DeadInterval:  dead,
+			})
+			if err != nil {
+				return fmt.Errorf("EnableOSPF RPC failed: %w", err)
+			}
+
+			fmt.Printf("OSPF enabled: interface=%s area=%s\n", iface, areaID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&iface, "interface", "", "interface name (required)")
+	cmd.Flags().StringVar(&areaID, "area", "", "OSPF area ID (required)")
+	cmd.Flags().BoolVar(&passive, "passive", false, "set interface as passive")
+	cmd.Flags().Uint32Var(&cost, "cost", 0, "OSPF cost")
+	cmd.Flags().Uint32Var(&hello, "hello-interval", 0, "hello interval (seconds)")
+	cmd.Flags().Uint32Var(&dead, "dead-interval", 0, "dead interval (seconds)")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("interface")
+	_ = cmd.MarkFlagRequired("area")
+	return cmd
+}
+
+// newDisableOSPFCmd creates the "disable-ospf" subcommand.
+func newDisableOSPFCmd() *cobra.Command {
+	var owner, token, iface string
+
+	cmd := &cobra.Command{
+		Use:   "disable-ospf",
+		Short: "Disable OSPF on an interface",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := connect()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err = client.DisableOSPF(ctx, &v1.DisableOSPFRequest{
+				Owner:         owner,
+				Token:         token,
+				InterfaceName: iface,
+			})
+			if err != nil {
+				return fmt.Errorf("DisableOSPF RPC failed: %w", err)
+			}
+
+			fmt.Printf("OSPF disabled: interface=%s\n", iface)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
+	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
+	cmd.Flags().StringVar(&iface, "interface", "", "interface name (required)")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("token")
+	_ = cmd.MarkFlagRequired("interface")
+	return cmd
 }

@@ -27,7 +27,9 @@ func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerI
 		return fmt.Errorf("frr: configure BGP global (AS=%d, router_id=%s): %w", localAS, routerID, err)
 	}
 
+	c.mu.Lock()
 	c.localAS = localAS
+	c.mu.Unlock()
 	return nil
 }
 
@@ -77,6 +79,8 @@ func (c *Client) ReconfigureBGPGlobal(ctx context.Context, oldAS, newAS uint32, 
 
 // GetLocalAS returns the cached local AS number.
 func (c *Client) GetLocalAS() uint32 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.localAS
 }
 
@@ -104,6 +108,12 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 	// without tearing down the BGP session.
 	commands = append(commands,
 		"address-family ipv4 unicast",
+		fmt.Sprintf("neighbor %s soft-reconfiguration inbound", addr),
+		"exit-address-family",
+	)
+
+	commands = append(commands,
+		"address-family ipv6 unicast",
 		fmt.Sprintf("neighbor %s soft-reconfiguration inbound", addr),
 		"exit-address-family",
 	)
@@ -199,6 +209,8 @@ func (c *Client) WithdrawNetwork(ctx context.Context, prefix string, afi string)
 
 // getLocalAS returns the cached local AS or 0 if not yet known.
 func (c *Client) getLocalAS(_ context.Context) uint32 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.localAS
 }
 
