@@ -138,16 +138,11 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("frr.retry_interval must be positive, got %d", cfg.FRR.RetryInterval)
 	}
 
-	if cfg.BGP.LocalAS == 0 {
-		return fmt.Errorf("bgp.local_as must be greater than 0")
-	}
-
-	if cfg.BGP.RouterID == "" {
-		return fmt.Errorf("bgp.router_id must not be empty")
-	}
-
-	if ip := net.ParseIP(cfg.BGP.RouterID); ip == nil {
-		return fmt.Errorf("bgp.router_id %q is not a valid IP address", cfg.BGP.RouterID)
+	// BGP config is optional — clients can configure it at runtime via ConfigureBGP RPC.
+	if cfg.BGP.RouterID != "" {
+		if ip := net.ParseIP(cfg.BGP.RouterID); ip == nil {
+			return fmt.Errorf("bgp.router_id %q is not a valid IP address", cfg.BGP.RouterID)
+		}
 	}
 
 	if len(cfg.Owners) == 0 {

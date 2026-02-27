@@ -196,11 +196,8 @@ func TestValidate_MissingLocalAS(t *testing.T) {
 	cfg.BGP.LocalAS = 0
 
 	err := Validate(cfg)
-	if err == nil {
-		t.Fatal("expected error for LocalAS=0, got nil")
-	}
-	if got := err.Error(); got != "bgp.local_as must be greater than 0" {
-		t.Errorf("error = %q, want %q", got, "bgp.local_as must be greater than 0")
+	if err != nil {
+		t.Fatalf("BGP config is optional, expected no error for LocalAS=0, got %v", err)
 	}
 }
 
@@ -209,11 +206,8 @@ func TestValidate_MissingRouterID(t *testing.T) {
 	cfg.BGP.RouterID = ""
 
 	err := Validate(cfg)
-	if err == nil {
-		t.Fatal("expected error for empty RouterID, got nil")
-	}
-	if got := err.Error(); got != "bgp.router_id must not be empty" {
-		t.Errorf("error = %q, want %q", got, "bgp.router_id must not be empty")
+	if err != nil {
+		t.Fatalf("BGP config is optional, expected no error for empty RouterID, got %v", err)
 	}
 }
 
