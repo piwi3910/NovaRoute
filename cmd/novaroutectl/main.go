@@ -496,6 +496,7 @@ func newConfigureBGPCmd() *cobra.Command {
 func newApplyPeerCmd() *cobra.Command {
 	var owner, token, neighbor, password, sourceAddr, description, peerType string
 	var remoteAS, keepalive, holdTime, ebgpMultihop, maxPrefix uint32
+	var bfdMinRx, bfdMinTx, bfdDetectMult uint32
 	var bfdEnabled bool
 	var addressFamilies []string
 
@@ -535,18 +536,21 @@ func newApplyPeerCmd() *cobra.Command {
 			}
 
 			peer := &v1.BGPPeer{
-				NeighborAddress: neighbor,
-				RemoteAs:        remoteAS,
-				PeerType:        pt,
-				Keepalive:       keepalive,
-				HoldTime:        holdTime,
-				BfdEnabled:      bfdEnabled,
-				EbgpMultihop:    ebgpMultihop,
-				Password:        password,
-				SourceAddress:   sourceAddr,
-				MaxPrefix:       maxPrefix,
-				AddressFamilies: afs,
-				Description:     description,
+				NeighborAddress:    neighbor,
+				RemoteAs:           remoteAS,
+				PeerType:           pt,
+				Keepalive:          keepalive,
+				HoldTime:           holdTime,
+				BfdEnabled:         bfdEnabled,
+				BfdMinRxMs:         bfdMinRx,
+				BfdMinTxMs:         bfdMinTx,
+				BfdDetectMultiplier: bfdDetectMult,
+				EbgpMultihop:       ebgpMultihop,
+				Password:           password,
+				SourceAddress:      sourceAddr,
+				MaxPrefix:          maxPrefix,
+				AddressFamilies:    afs,
+				Description:        description,
 			}
 
 			_, err = client.ApplyPeer(ctx, &v1.ApplyPeerRequest{
@@ -570,6 +574,9 @@ func newApplyPeerCmd() *cobra.Command {
 	cmd.Flags().Uint32Var(&keepalive, "keepalive", 0, "keepalive interval (seconds)")
 	cmd.Flags().Uint32Var(&holdTime, "hold-time", 0, "hold time (seconds)")
 	cmd.Flags().BoolVar(&bfdEnabled, "bfd", false, "enable BFD for this peer")
+	cmd.Flags().Uint32Var(&bfdMinRx, "bfd-min-rx", 0, "BFD minimum RX interval in ms (default 300 when --bfd set)")
+	cmd.Flags().Uint32Var(&bfdMinTx, "bfd-min-tx", 0, "BFD minimum TX interval in ms (default 300 when --bfd set)")
+	cmd.Flags().Uint32Var(&bfdDetectMult, "bfd-detect-multiplier", 0, "BFD detect multiplier (default 3 when --bfd set)")
 	cmd.Flags().Uint32Var(&ebgpMultihop, "ebgp-multihop", 0, "eBGP multihop TTL")
 	cmd.Flags().StringVar(&password, "password", "", "BGP session password")
 	cmd.Flags().StringVar(&sourceAddr, "source-address", "", "update source address")

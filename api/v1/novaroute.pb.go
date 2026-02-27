@@ -650,21 +650,24 @@ func (x *ApplyPeerRequest) GetPeer() *BGPPeer {
 }
 
 type BGPPeer struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	NeighborAddress string                 `protobuf:"bytes,1,opt,name=neighbor_address,json=neighborAddress,proto3" json:"neighbor_address,omitempty"`
-	RemoteAs        uint32                 `protobuf:"varint,2,opt,name=remote_as,json=remoteAs,proto3" json:"remote_as,omitempty"`
-	PeerType        PeerType               `protobuf:"varint,3,opt,name=peer_type,json=peerType,proto3,enum=novaroute.v1.PeerType" json:"peer_type,omitempty"`
-	Keepalive       uint32                 `protobuf:"varint,4,opt,name=keepalive,proto3" json:"keepalive,omitempty"`
-	HoldTime        uint32                 `protobuf:"varint,5,opt,name=hold_time,json=holdTime,proto3" json:"hold_time,omitempty"`
-	BfdEnabled      bool                   `protobuf:"varint,6,opt,name=bfd_enabled,json=bfdEnabled,proto3" json:"bfd_enabled,omitempty"`
-	Description     string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
-	AddressFamilies []AddressFamily        `protobuf:"varint,8,rep,packed,name=address_families,json=addressFamilies,proto3,enum=novaroute.v1.AddressFamily" json:"address_families,omitempty"`
-	SourceAddress   string                 `protobuf:"bytes,9,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
-	EbgpMultihop    uint32                 `protobuf:"varint,10,opt,name=ebgp_multihop,json=ebgpMultihop,proto3" json:"ebgp_multihop,omitempty"`
-	Password        string                 `protobuf:"bytes,11,opt,name=password,proto3" json:"password,omitempty"`
-	MaxPrefix       uint32                 `protobuf:"varint,12,opt,name=max_prefix,json=maxPrefix,proto3" json:"max_prefix,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	NeighborAddress     string                 `protobuf:"bytes,1,opt,name=neighbor_address,json=neighborAddress,proto3" json:"neighbor_address,omitempty"`
+	RemoteAs            uint32                 `protobuf:"varint,2,opt,name=remote_as,json=remoteAs,proto3" json:"remote_as,omitempty"`
+	PeerType            PeerType               `protobuf:"varint,3,opt,name=peer_type,json=peerType,proto3,enum=novaroute.v1.PeerType" json:"peer_type,omitempty"`
+	Keepalive           uint32                 `protobuf:"varint,4,opt,name=keepalive,proto3" json:"keepalive,omitempty"`
+	HoldTime            uint32                 `protobuf:"varint,5,opt,name=hold_time,json=holdTime,proto3" json:"hold_time,omitempty"`
+	BfdEnabled          bool                   `protobuf:"varint,6,opt,name=bfd_enabled,json=bfdEnabled,proto3" json:"bfd_enabled,omitempty"`
+	Description         string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
+	AddressFamilies     []AddressFamily        `protobuf:"varint,8,rep,packed,name=address_families,json=addressFamilies,proto3,enum=novaroute.v1.AddressFamily" json:"address_families,omitempty"`
+	SourceAddress       string                 `protobuf:"bytes,9,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
+	EbgpMultihop        uint32                 `protobuf:"varint,10,opt,name=ebgp_multihop,json=ebgpMultihop,proto3" json:"ebgp_multihop,omitempty"`
+	Password            string                 `protobuf:"bytes,11,opt,name=password,proto3" json:"password,omitempty"`
+	MaxPrefix           uint32                 `protobuf:"varint,12,opt,name=max_prefix,json=maxPrefix,proto3" json:"max_prefix,omitempty"`
+	BfdMinRxMs          uint32                 `protobuf:"varint,13,opt,name=bfd_min_rx_ms,json=bfdMinRxMs,proto3" json:"bfd_min_rx_ms,omitempty"`
+	BfdMinTxMs          uint32                 `protobuf:"varint,14,opt,name=bfd_min_tx_ms,json=bfdMinTxMs,proto3" json:"bfd_min_tx_ms,omitempty"`
+	BfdDetectMultiplier uint32                 `protobuf:"varint,15,opt,name=bfd_detect_multiplier,json=bfdDetectMultiplier,proto3" json:"bfd_detect_multiplier,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *BGPPeer) Reset() {
@@ -777,6 +780,27 @@ func (x *BGPPeer) GetPassword() string {
 func (x *BGPPeer) GetMaxPrefix() uint32 {
 	if x != nil {
 		return x.MaxPrefix
+	}
+	return 0
+}
+
+func (x *BGPPeer) GetBfdMinRxMs() uint32 {
+	if x != nil {
+		return x.BfdMinRxMs
+	}
+	return 0
+}
+
+func (x *BGPPeer) GetBfdMinTxMs() uint32 {
+	if x != nil {
+		return x.BfdMinTxMs
+	}
+	return 0
+}
+
+func (x *BGPPeer) GetBfdDetectMultiplier() uint32 {
+	if x != nil {
+		return x.BfdDetectMultiplier
 	}
 	return 0
 }
@@ -2352,7 +2376,7 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x10ApplyPeerRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12)\n" +
-	"\x04peer\x18\x03 \x01(\v2\x15.novaroute.v1.BGPPeerR\x04peer\"\xd3\x03\n" +
+	"\x04peer\x18\x03 \x01(\v2\x15.novaroute.v1.BGPPeerR\x04peer\"\xcd\x04\n" +
 	"\aBGPPeer\x12)\n" +
 	"\x10neighbor_address\x18\x01 \x01(\tR\x0fneighborAddress\x12\x1b\n" +
 	"\tremote_as\x18\x02 \x01(\rR\bremoteAs\x123\n" +
@@ -2368,7 +2392,12 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	" \x01(\rR\febgpMultihop\x12\x1a\n" +
 	"\bpassword\x18\v \x01(\tR\bpassword\x12\x1d\n" +
 	"\n" +
-	"max_prefix\x18\f \x01(\rR\tmaxPrefix\"\x13\n" +
+	"max_prefix\x18\f \x01(\rR\tmaxPrefix\x12!\n" +
+	"\rbfd_min_rx_ms\x18\r \x01(\rR\n" +
+	"bfdMinRxMs\x12!\n" +
+	"\rbfd_min_tx_ms\x18\x0e \x01(\rR\n" +
+	"bfdMinTxMs\x122\n" +
+	"\x15bfd_detect_multiplier\x18\x0f \x01(\rR\x13bfdDetectMultiplier\"\x13\n" +
 	"\x11ApplyPeerResponse\"j\n" +
 	"\x11RemovePeerRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +

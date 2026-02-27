@@ -34,6 +34,9 @@ func TestNewReconciler(t *testing.T) {
 	if r.appliedOSPF == nil {
 		t.Error("appliedOSPF map not initialized")
 	}
+	if r.peerManagedBFD == nil {
+		t.Error("peerManagedBFD map not initialized")
+	}
 	if r.triggerCh == nil {
 		t.Error("triggerCh not initialized")
 	}
@@ -228,21 +231,29 @@ func TestDetectAFI(t *testing.T) {
 
 func TestPeerEqual(t *testing.T) {
 	base := &intent.PeerIntent{
-		NeighborAddress: "10.0.0.1",
-		RemoteAS:        65001,
-		PeerType:        v1.PeerType_PEER_TYPE_EXTERNAL,
-		Keepalive:       30,
-		HoldTime:        90,
-		AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+		NeighborAddress:     "10.0.0.1",
+		RemoteAS:            65001,
+		PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
+		Keepalive:           30,
+		HoldTime:            90,
+		BFDEnabled:          true,
+		BFDMinRxMs:          300,
+		BFDMinTxMs:          300,
+		BFDDetectMultiplier: 3,
+		AddressFamilies:     []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
 	}
 
 	same := &intent.PeerIntent{
-		NeighborAddress: "10.0.0.1",
-		RemoteAS:        65001,
-		PeerType:        v1.PeerType_PEER_TYPE_EXTERNAL,
-		Keepalive:       30,
-		HoldTime:        90,
-		AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+		NeighborAddress:     "10.0.0.1",
+		RemoteAS:            65001,
+		PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
+		Keepalive:           30,
+		HoldTime:            90,
+		BFDEnabled:          true,
+		BFDMinRxMs:          300,
+		BFDMinTxMs:          300,
+		BFDDetectMultiplier: 3,
+		AddressFamilies:     []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
 	}
 
 	if !peerEqual(base, same) {
@@ -274,6 +285,38 @@ func TestPeerEqual(t *testing.T) {
 	}
 	if peerEqual(base, diffAF) {
 		t.Error("expected peers with different address families to be unequal")
+	}
+
+	diffBFDRx := &intent.PeerIntent{
+		NeighborAddress:     "10.0.0.1",
+		RemoteAS:            65001,
+		PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
+		Keepalive:           30,
+		HoldTime:            90,
+		BFDEnabled:          true,
+		BFDMinRxMs:          500,
+		BFDMinTxMs:          300,
+		BFDDetectMultiplier: 3,
+		AddressFamilies:     []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+	}
+	if peerEqual(base, diffBFDRx) {
+		t.Error("expected peers with different BFDMinRxMs to be unequal")
+	}
+
+	diffBFDMult := &intent.PeerIntent{
+		NeighborAddress:     "10.0.0.1",
+		RemoteAS:            65001,
+		PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
+		Keepalive:           30,
+		HoldTime:            90,
+		BFDEnabled:          true,
+		BFDMinRxMs:          300,
+		BFDMinTxMs:          300,
+		BFDDetectMultiplier: 5,
+		AddressFamilies:     []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+	}
+	if peerEqual(base, diffBFDMult) {
+		t.Error("expected peers with different BFDDetectMultiplier to be unequal")
 	}
 }
 
