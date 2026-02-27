@@ -533,6 +533,7 @@ NovaRoute/
 | **Real event publishing** | Done | Events published on FRR state transitions (peer up/down, BFD up/down, OSPF neighbor changes) |
 | **Graceful shutdown** | Done | WithdrawAll removes prefixes, BFD, OSPF, peers on SIGTERM with 10s timeout |
 | **Real GetStatus** | Done | GetStatus RPC returns actual FRR peer state, BFD status, OSPF state, FRR version |
+| **Health check endpoints** | Done | `/healthz` always-OK liveness, `/readyz` checks FRR connectivity |
 | Multi-owner peer sharing | Not yet | Two owners requesting the same peer are handled independently |
 | Route-maps / BGP filters | Not yet | No route-map, community filter, or path selection policy support |
 | OSPF authentication | Not yet | |
@@ -545,7 +546,6 @@ NovaRoute/
 - **Multi-owner peer sharing** — Merge BGP sessions when multiple owners request the same peer; remove only when all owners withdraw
 - **Route-maps and filters** — BGP route-map, community filter, AS-path filter support
 - **NovaNet integration** — Pod CIDR advertisement with multi-owner coordination
-- **Health check endpoint** — Proper `/healthz` with FRR connectivity status
 
 ---
 
