@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: novaroute-config
-  namespace: novaroute-system
+  namespace: nova-system
   labels:
     app.kubernetes.io/name: novaroute-agent
     app.kubernetes.io/component: config
@@ -52,7 +52,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: novaroute-frr-bootstrap
-  namespace: novaroute-system
+  namespace: nova-system
   labels:
     app.kubernetes.io/name: novaroute-agent
     app.kubernetes.io/component: frr-config
