@@ -207,7 +207,11 @@ func main() {
 	}
 
 	// Ensure the socket directory exists.
-	socketDir := socketPath[:strings.LastIndex(socketPath, "/")]
+	lastSlash := strings.LastIndex(socketPath, "/")
+	if lastSlash < 0 {
+		logger.Fatal("invalid listen_socket path: must contain a directory separator", zap.String("path", socketPath))
+	}
+	socketDir := socketPath[:lastSlash]
 	if socketDir != "" {
 		if mkdirErr := os.MkdirAll(socketDir, 0o755); mkdirErr != nil {
 			logger.Fatal("failed to create socket directory",

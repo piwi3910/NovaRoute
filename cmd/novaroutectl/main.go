@@ -514,19 +514,23 @@ func newApplyPeerCmd() *cobra.Command {
 
 			var pt v1.PeerType
 			switch strings.ToLower(peerType) {
+			case "external", "ebgp":
+				pt = v1.PeerType_PEER_TYPE_EXTERNAL
 			case "internal", "ibgp":
 				pt = v1.PeerType_PEER_TYPE_INTERNAL
 			default:
-				pt = v1.PeerType_PEER_TYPE_EXTERNAL
+				return fmt.Errorf("invalid --peer-type %q: must be external|ebgp|internal|ibgp", peerType)
 			}
 
 			var afs []v1.AddressFamily
 			for _, af := range addressFamilies {
 				switch strings.ToLower(af) {
+				case "ipv4-unicast", "ipv4":
+					afs = append(afs, v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST)
 				case "ipv6-unicast", "ipv6":
 					afs = append(afs, v1.AddressFamily_ADDRESS_FAMILY_IPV6_UNICAST)
 				default:
-					afs = append(afs, v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST)
+					return fmt.Errorf("invalid --address-families value %q: must be ipv4-unicast|ipv4|ipv6-unicast|ipv6", af)
 				}
 			}
 

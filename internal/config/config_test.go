@@ -28,8 +28,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.MetricsAddress != ":9100" {
 		t.Errorf("MetricsAddress = %q, want %q", cfg.MetricsAddress, ":9100")
 	}
-	if cfg.DisconnectGracePeriod != 30 {
-		t.Errorf("DisconnectGracePeriod = %d, want %d", cfg.DisconnectGracePeriod, 30)
+	if cfg.DisconnectGracePeriod != 0 {
+		t.Errorf("DisconnectGracePeriod = %d, want %d", cfg.DisconnectGracePeriod, 0)
 	}
 	if cfg.Owners == nil {
 		t.Error("Owners map should be initialized, got nil")
@@ -160,8 +160,8 @@ func TestLoadFromFile_MergesWithDefaults(t *testing.T) {
 	if loaded.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want default %q", loaded.LogLevel, "info")
 	}
-	if loaded.DisconnectGracePeriod != 30 {
-		t.Errorf("DisconnectGracePeriod = %d, want default %d", loaded.DisconnectGracePeriod, 30)
+	if loaded.DisconnectGracePeriod != 0 {
+		t.Errorf("DisconnectGracePeriod = %d, want default %d", loaded.DisconnectGracePeriod, 0)
 	}
 }
 

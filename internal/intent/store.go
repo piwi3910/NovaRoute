@@ -392,7 +392,7 @@ func (s *Store) SetOSPFIntent(owner string, intent *OSPFIntent) error {
 				break
 			}
 		}
-		if !valid || intent.AreaID == "" {
+		if !valid {
 			return fmt.Errorf("area ID must be in dotted-decimal format (e.g. 0.0.0.0) or an integer, got %q", intent.AreaID)
 		}
 	}

@@ -104,13 +104,15 @@ func (eb *EventBus) Publish(event *pb.RouteEvent) {
 // This satisfies the reconciler.EventPublisher interface, allowing the EventBus
 // to receive events from the FRR state monitor.
 func (eb *EventBus) PublishRouteEvent(eventType uint32, owner, detail string, metadata map[string]string) {
-	eb.Publish(&pb.RouteEvent{
+	evt := &pb.RouteEvent{
 		Type:          pb.EventType(eventType),
 		Owner:         owner,
 		Detail:        detail,
 		TimestampUnix: time.Now().Unix(),
 		Metadata:      metadata,
-	})
+	}
+	metrics.RecordEvent(evt.Type.String())
+	eb.Publish(evt)
 }
 
 // matches returns true if the event passes the subscription's filters.
