@@ -130,14 +130,14 @@ extraVolumes: []
 # -- Additional volume mounts
 extraVolumeMounts: []
 
-# -- RBAC configuration
-rbac:
-  # -- Create RBAC resources
-  create: true
-
 # -- CRD installation configuration
 crds:
   # -- Install CRDs with the chart
   install: true
   # -- Keep CRDs on chart uninstall (prevents data loss)
   keep: true
+
+# -- RBAC configuration
+rbac:
+  # -- Create RBAC resources
+  create: true
