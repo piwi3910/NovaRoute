@@ -382,8 +382,11 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 		PeerType:        peer.GetPeerType(),
 		Keepalive:       peer.GetKeepalive(),
 		HoldTime:        peer.GetHoldTime(),
-		BFDEnabled:      peer.GetBfdEnabled(),
-		Description:     peer.GetDescription(),
+		BFDEnabled:          peer.GetBfdEnabled(),
+		BFDMinRxMs:          peer.GetBfdMinRxMs(),
+		BFDMinTxMs:          peer.GetBfdMinTxMs(),
+		BFDDetectMultiplier: peer.GetBfdDetectMultiplier(),
+		Description:         peer.GetDescription(),
 		AddressFamilies: peer.GetAddressFamilies(),
 		SourceAddress:   peer.GetSourceAddress(),
 		EBGPMultihop:    peer.GetEbgpMultihop(),
@@ -394,6 +397,19 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 	peerIntent.MaxPrefixes = peer.GetMaxPrefix()
 	if peerIntent.MaxPrefixes == 0 {
 		peerIntent.MaxPrefixes = 1000
+	}
+
+	// Default BFD parameters when BFD is enabled and params are unset.
+	if peerIntent.BFDEnabled {
+		if peerIntent.BFDMinRxMs == 0 {
+			peerIntent.BFDMinRxMs = 300
+		}
+		if peerIntent.BFDMinTxMs == 0 {
+			peerIntent.BFDMinTxMs = 300
+		}
+		if peerIntent.BFDDetectMultiplier == 0 {
+			peerIntent.BFDDetectMultiplier = 3
+		}
 	}
 
 	// Default to ipv4-unicast if no address families specified.
