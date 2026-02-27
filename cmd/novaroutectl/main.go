@@ -494,7 +494,7 @@ func newConfigureBGPCmd() *cobra.Command {
 // newApplyPeerCmd creates the "apply-peer" subcommand.
 func newApplyPeerCmd() *cobra.Command {
 	var owner, token, neighbor, password, sourceAddr string
-	var remoteAS, keepalive, holdTime, ebgpMultihop uint32
+	var remoteAS, keepalive, holdTime, ebgpMultihop, maxPrefix uint32
 	var bfdEnabled bool
 
 	cmd := &cobra.Command{
@@ -520,6 +520,7 @@ func newApplyPeerCmd() *cobra.Command {
 				EbgpMultihop:    ebgpMultihop,
 				Password:        password,
 				SourceAddress:   sourceAddr,
+				MaxPrefix:       maxPrefix,
 				AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
 			}
 
@@ -547,6 +548,7 @@ func newApplyPeerCmd() *cobra.Command {
 	cmd.Flags().Uint32Var(&ebgpMultihop, "ebgp-multihop", 0, "eBGP multihop TTL")
 	cmd.Flags().StringVar(&password, "password", "", "BGP session password")
 	cmd.Flags().StringVar(&sourceAddr, "source-address", "", "update source address")
+	cmd.Flags().Uint32Var(&maxPrefix, "max-prefix", 0, "maximum prefix limit (0 = default 1000)")
 	_ = cmd.MarkFlagRequired("owner")
 	_ = cmd.MarkFlagRequired("token")
 	_ = cmd.MarkFlagRequired("neighbor")

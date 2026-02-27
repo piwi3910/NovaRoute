@@ -192,6 +192,7 @@ func (r *Reconciler) ReconcilePeers(ctx context.Context, desired []*intent.PeerI
 				continue
 			}
 			delete(r.appliedPeers, key)
+			delete(r.lastBGPStates, ap.NeighborAddress)
 			metrics.RecordIntent(ap.Owner, "peer", "remove")
 		}
 	}
@@ -288,6 +289,7 @@ func (r *Reconciler) ReconcileBFD(ctx context.Context, desired []*intent.BFDInte
 				continue
 			}
 			delete(r.appliedBFD, key)
+			delete(r.lastBFDStates, ab.PeerAddress)
 			metrics.RecordIntent(ab.Owner, "bfd", "remove")
 		}
 	}
@@ -336,6 +338,8 @@ func (r *Reconciler) ReconcileOSPF(ctx context.Context, desired []*intent.OSPFIn
 				continue
 			}
 			delete(r.appliedOSPF, key)
+			// Note: lastOSPFStates is keyed by neighbor ID, not interface name,
+			// so we can't clean it up here. The monitor will detect the removal.
 			metrics.RecordIntent(ao.Owner, "ospf", "remove")
 		}
 	}

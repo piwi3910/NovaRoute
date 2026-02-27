@@ -659,6 +659,7 @@ type BGPPeer struct {
 	SourceAddress   string                 `protobuf:"bytes,9,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"`
 	EbgpMultihop    uint32                 `protobuf:"varint,10,opt,name=ebgp_multihop,json=ebgpMultihop,proto3" json:"ebgp_multihop,omitempty"`
 	Password        string                 `protobuf:"bytes,11,opt,name=password,proto3" json:"password,omitempty"`
+	MaxPrefix       uint32                 `protobuf:"varint,12,opt,name=max_prefix,json=maxPrefix,proto3" json:"max_prefix,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -768,6 +769,13 @@ func (x *BGPPeer) GetPassword() string {
 		return x.Password
 	}
 	return ""
+}
+
+func (x *BGPPeer) GetMaxPrefix() uint32 {
+	if x != nil {
+		return x.MaxPrefix
+	}
+	return 0
 }
 
 type ApplyPeerResponse struct {
@@ -1773,6 +1781,7 @@ type PeerStatus struct {
 	Uptime           string                 `protobuf:"bytes,7,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	BfdEnabled       bool                   `protobuf:"varint,8,opt,name=bfd_enabled,json=bfdEnabled,proto3" json:"bfd_enabled,omitempty"`
 	BfdStatus        string                 `protobuf:"bytes,9,opt,name=bfd_status,json=bfdStatus,proto3" json:"bfd_status,omitempty"`
+	Description      string                 `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1866,6 +1875,13 @@ func (x *PeerStatus) GetBfdEnabled() bool {
 func (x *PeerStatus) GetBfdStatus() string {
 	if x != nil {
 		return x.BfdStatus
+	}
+	return ""
+}
+
+func (x *PeerStatus) GetDescription() string {
+	if x != nil {
+		return x.Description
 	}
 	return ""
 }
@@ -2333,7 +2349,7 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x10ApplyPeerRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12)\n" +
-	"\x04peer\x18\x03 \x01(\v2\x15.novaroute.v1.BGPPeerR\x04peer\"\xb4\x03\n" +
+	"\x04peer\x18\x03 \x01(\v2\x15.novaroute.v1.BGPPeerR\x04peer\"\xd3\x03\n" +
 	"\aBGPPeer\x12)\n" +
 	"\x10neighbor_address\x18\x01 \x01(\tR\x0fneighborAddress\x12\x1b\n" +
 	"\tremote_as\x18\x02 \x01(\rR\bremoteAs\x123\n" +
@@ -2347,7 +2363,9 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x0esource_address\x18\t \x01(\tR\rsourceAddress\x12#\n" +
 	"\rebgp_multihop\x18\n" +
 	" \x01(\rR\febgpMultihop\x12\x1a\n" +
-	"\bpassword\x18\v \x01(\tR\bpassword\"\x13\n" +
+	"\bpassword\x18\v \x01(\tR\bpassword\x12\x1d\n" +
+	"\n" +
+	"max_prefix\x18\f \x01(\rR\tmaxPrefix\"\x13\n" +
 	"\x11ApplyPeerResponse\"j\n" +
 	"\x11RemovePeerRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
@@ -2411,7 +2429,7 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\fbfd_sessions\x18\x03 \x03(\v2\x1e.novaroute.v1.BFDSessionStatusR\vbfdSessions\x12J\n" +
 	"\x0fospf_interfaces\x18\x04 \x03(\v2!.novaroute.v1.OSPFInterfaceStatusR\x0eospfInterfaces\x126\n" +
 	"\n" +
-	"frr_status\x18\x05 \x01(\v2\x17.novaroute.v1.FRRStatusR\tfrrStatus\"\xaa\x02\n" +
+	"frr_status\x18\x05 \x01(\v2\x17.novaroute.v1.FRRStatusR\tfrrStatus\"\xcc\x02\n" +
 	"\n" +
 	"PeerStatus\x12)\n" +
 	"\x10neighbor_address\x18\x01 \x01(\tR\x0fneighborAddress\x12\x1b\n" +
@@ -2424,7 +2442,9 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\vbfd_enabled\x18\b \x01(\bR\n" +
 	"bfdEnabled\x12\x1d\n" +
 	"\n" +
-	"bfd_status\x18\t \x01(\tR\tbfdStatus\"\x86\x01\n" +
+	"bfd_status\x18\t \x01(\tR\tbfdStatus\x12 \n" +
+	"\vdescription\x18\n" +
+	" \x01(\tR\vdescription\"\x86\x01\n" +
 	"\fPrefixStatus\x12\x16\n" +
 	"\x06prefix\x18\x01 \x01(\tR\x06prefix\x122\n" +
 	"\bprotocol\x18\x02 \x01(\x0e2\x16.novaroute.v1.ProtocolR\bprotocol\x12\x14\n" +
