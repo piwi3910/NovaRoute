@@ -179,7 +179,7 @@ func TestParseBFDPeersJSON_Empty(t *testing.T) {
 }
 
 func TestParseBFDPeersJSON_SinglePeer(t *testing.T) {
-	input := `[{ "peer": "10.0.0.1", "interface": "eth0", "status": "up" }]`
+	input := `[{ "peer": "10.0.0.1", "interface": "eth0", "status": "up", "uptime": 3661 }]`
 
 	result, err := parseBFDPeersJSON(input)
 	if err != nil {
@@ -199,13 +199,16 @@ func TestParseBFDPeersJSON_SinglePeer(t *testing.T) {
 	if p.Status != "up" {
 		t.Errorf("Status = %q, want %q", p.Status, "up")
 	}
+	if p.Uptime != "1h1m1s" {
+		t.Errorf("Uptime = %q, want %q", p.Uptime, "1h1m1s")
+	}
 }
 
 func TestParseBFDPeersJSON_MultiplePeers(t *testing.T) {
 	input := `[
-		{ "peer": "10.0.0.1", "interface": "eth0", "status": "up" },
-		{ "peer": "10.0.0.2", "interface": "eth1", "status": "down" },
-		{ "peer": "10.0.0.3", "interface": "", "status": "init" }
+		{ "peer": "10.0.0.1", "interface": "eth0", "status": "up", "uptime": 120 },
+		{ "peer": "10.0.0.2", "interface": "eth1", "status": "down", "uptime": 0 },
+		{ "peer": "10.0.0.3", "interface": "", "status": "init", "uptime": 0 }
 	]`
 
 	result, err := parseBFDPeersJSON(input)
@@ -481,7 +484,7 @@ func TestParseBGPNeighborsJSON_ViaGetBGPNeighbors(t *testing.T) {
 
 func TestParseBFDPeersJSON_ViaGetBFDPeers(t *testing.T) {
 	client, dir := setupFakeVtysh(t)
-	setFakeResponse(t, dir, `[{ "peer": "10.0.0.1", "interface": "eth0", "status": "up" }]`)
+	setFakeResponse(t, dir, `[{ "peer": "10.0.0.1", "interface": "eth0", "status": "up", "uptime": 60 }]`)
 
 	result, err := client.GetBFDPeers(context.Background())
 	if err != nil {
