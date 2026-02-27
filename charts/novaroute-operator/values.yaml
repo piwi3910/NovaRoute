@@ -1,0 +1,143 @@
+# Default values for novaroute-operator
+# This is a YAML-formatted file.
+
+# -- Number of operator replicas
+replicaCount: 1
+
+# -- Image configuration
+image:
+  # -- Image repository
+  repository: ghcr.io/piwi3910/novaroute/novaroute-operator
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag (defaults to chart appVersion)
+  tag: ""
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+
+# -- Override the full name
+fullnameOverride: ""
+
+# -- Service account configuration
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- The name of the service account to use
+  name: ""
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod labels
+podLabels: {}
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# -- Resource requests and limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# -- Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8081
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# -- Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# -- Node selector for pod scheduling
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling
+tolerations: []
+
+# -- Affinity rules for pod scheduling
+affinity: {}
+
+# -- Priority class name
+priorityClassName: ""
+
+# -- Leader election configuration
+leaderElection:
+  # -- Enable leader election
+  enabled: true
+  # -- Lease duration
+  leaseDuration: 15s
+  # -- Renew deadline
+  renewDeadline: 10s
+  # -- Retry period
+  retryPeriod: 2s
+
+# -- Logging configuration
+logging:
+  # -- Log level: debug, info, warn, error
+  level: info
+  # -- Log format: json, text
+  format: json
+
+# -- Metrics configuration
+metrics:
+  # -- Enable Prometheus metrics
+  enabled: true
+  # -- Metrics service port
+  port: 8080
+
+# -- Health probe configuration
+health:
+  # -- Health probe port
+  port: 8081
+
+# -- Additional environment variables
+extraEnv: []
+
+# -- Additional command-line arguments
+extraArgs: []
+
+# -- Additional volumes
+extraVolumes: []
+
+# -- Additional volume mounts
+extraVolumeMounts: []
+
+# -- RBAC configuration
+rbac:
+  # -- Create RBAC resources
+  create: true
+
+# -- CRD installation configuration
+crds:
+  # -- Install CRDs with the chart
+  install: true
+  # -- Keep CRDs on chart uninstall (prevents data loss)
+  keep: true
