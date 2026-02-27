@@ -266,12 +266,6 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
 	}
 
-	// Only the admin owner can change global BGP configuration.
-	if owner != "admin" {
-		metrics.RecordPolicyViolation(owner, "bgp_global_denied")
-		return nil, status.Errorf(codes.PermissionDenied, "only the admin owner can modify global BGP configuration")
-	}
-
 	// Update BGP global config in the reconciler.
 	prevAS, prevRouterID := s.reconciler.UpdateBGPGlobal(req.GetLocalAs(), req.GetRouterId())
 
