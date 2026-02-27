@@ -2,10 +2,12 @@
 package server
 
 import (
+	"strings"
 	"sync"
 	"time"
 
 	pb "github.com/piwi3910/NovaRoute/api/v1"
+	"github.com/piwi3910/NovaRoute/internal/metrics"
 )
 
 // EventBus provides a publish-subscribe mechanism for RouteEvents. Subscribers
@@ -41,7 +43,12 @@ func (eb *EventBus) Subscribe(ownerFilter string, types []string) <-chan *pb.Rou
 
 	typeFilter := make(map[string]struct{}, len(types))
 	for _, t := range types {
-		typeFilter[t] = struct{}{}
+		// Normalize: accept both "EVENT_TYPE_PEER_UP" and "PEER_UP" forms.
+		normalized := strings.ToUpper(strings.TrimSpace(t))
+		if !strings.HasPrefix(normalized, "EVENT_TYPE_") {
+			normalized = "EVENT_TYPE_" + normalized
+		}
+		typeFilter[normalized] = struct{}{}
 	}
 
 	eb.mu.Lock()
@@ -88,6 +95,7 @@ func (eb *EventBus) Publish(event *pb.RouteEvent) {
 		select {
 		case sub.ch <- event:
 		default:
+			metrics.RecordEventDropped()
 		}
 	}
 }

@@ -16,9 +16,11 @@ import (
 	"syscall"
 	"time"
 
+	v1 "github.com/piwi3910/NovaRoute/api/v1"
 	"github.com/piwi3910/NovaRoute/internal/config"
 	"github.com/piwi3910/NovaRoute/internal/frr"
 	"github.com/piwi3910/NovaRoute/internal/intent"
+	"github.com/piwi3910/NovaRoute/internal/metrics"
 	"github.com/piwi3910/NovaRoute/internal/policy"
 	"github.com/piwi3910/NovaRoute/internal/reconciler"
 	"github.com/piwi3910/NovaRoute/internal/server"
@@ -26,6 +28,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	grpcCodes "google.golang.org/grpc/codes"
+	grpcStatus "google.golang.org/grpc/status"
 )
 
 func main() {
@@ -82,6 +86,7 @@ func main() {
 	frrReady := make(chan struct{})
 
 	go func() {
+		metrics.SetFRRConnected(false)
 		retryInterval := time.Duration(cfg.FRR.RetryInterval) * time.Second
 		for {
 			select {
@@ -132,6 +137,7 @@ func main() {
 				zap.String("version", version),
 			)
 			close(frrReady)
+			metrics.SetFRRConnected(true)
 			return
 		}
 	}()
@@ -150,9 +156,18 @@ func main() {
 	logger.Info("reconciler loop started")
 
 	// Create gRPC server.
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(recoveryUnaryInterceptor(logger)),
+		grpc.ChainStreamInterceptor(recoveryStreamInterceptor(logger)),
+	)
 	srv := server.New(grpcServer, store, policyEngine, rec, logger)
 	logger.Info("gRPC server created")
+
+	if cfg.DisconnectGracePeriod > 0 {
+		logger.Info("disconnect grace period configured (session TTL tracking not yet implemented)",
+			zap.Int("grace_period_seconds", cfg.DisconnectGracePeriod),
+		)
+	}
 
 	// Wire the server's event bus into the reconciler for FRR state change events.
 	rec.SetEventPublisher(srv.EventBus())
@@ -165,6 +180,15 @@ func main() {
 			rec.SetFRRClient(frrClient)
 			srv.SetFRRClient(frrClient)
 			logger.Info("FRR client injected into reconciler and server")
+
+			// Publish FRR connected event.
+			srv.EventBus().Publish(&v1.RouteEvent{
+				Type:          v1.EventType_EVENT_TYPE_FRR_CONNECTED,
+				Detail:        "FRR VTY connection established",
+				TimestampUnix: time.Now().Unix(),
+			})
+			metrics.RecordEvent("frr_connected")
+
 			rec.TriggerReconcile()
 		case <-ctx.Done():
 		}
@@ -350,4 +374,38 @@ func removeStaleSocket(path string) error {
 	}
 
 	return nil
+}
+
+// recoveryUnaryInterceptor returns a gRPC unary interceptor that recovers from
+// panics in RPC handlers, logs the panic, and returns an Internal error.
+func recoveryUnaryInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("panic recovered in gRPC handler",
+					zap.String("method", info.FullMethod),
+					zap.Any("panic", r),
+				)
+				err = grpcStatus.Errorf(grpcCodes.Internal, "internal server error")
+			}
+		}()
+		return handler(ctx, req)
+	}
+}
+
+// recoveryStreamInterceptor returns a gRPC stream interceptor that recovers from
+// panics in streaming RPC handlers, logs the panic, and returns an Internal error.
+func recoveryStreamInterceptor(logger *zap.Logger) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("panic recovered in gRPC stream handler",
+					zap.String("method", info.FullMethod),
+					zap.Any("panic", r),
+				)
+				err = grpcStatus.Errorf(grpcCodes.Internal, "internal server error")
+			}
+		}()
+		return handler(srv, ss)
+	}
 }
