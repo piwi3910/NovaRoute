@@ -93,6 +93,9 @@ message BGPPeer {
   uint32 ebgp_multihop = 10;
   string password = 11;
   uint32 max_prefix = 12;
+  uint32 bfd_min_rx_ms = 13;
+  uint32 bfd_min_tx_ms = 14;
+  uint32 bfd_detect_multiplier = 15;
 }
 
 enum PeerType {
