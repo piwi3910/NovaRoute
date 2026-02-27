@@ -16,10 +16,6 @@ data:
         "connect_timeout": 10,
         "retry_interval": 5
       },
-      "bgp": {
-        "local_as": 65000,
-        "router_id": "10.0.0.1"
-      },
       "owners": {
         "novaedge": {
           "token": "novaedge-test-token-2024",
@@ -43,7 +39,7 @@ data:
           }
         }
       },
-      "log_level": "debug",
+      "log_level": "info",
       "metrics_address": ":9102",
       "disconnect_grace_period": 30
     }
