@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" width="720" height="200">
+  <defs>
+    <radialGradient id="burstGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#0369a1"/>
+      <stop offset="40%" style="stop-color:#0284c7"/>
+      <stop offset="80%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#0ea5e9;stop-opacity:0"/>
+    </radialGradient>
+
+    <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#0ea5e9;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#0ea5e9;stop-opacity:0"/>
+    </radialGradient>
+
+    <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#06b6d4"/>
+    </linearGradient>
+
+    <filter id="starGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- ====== ICON centered at y=100 ====== -->
+  <g transform="translate(90, 100)">
+    <circle cx="0" cy="0" r="70" fill="url(#glowGrad)"/>
+
+    <polygon
+      points="0,-72 62.4,-36 62.4,36 0,72 -62.4,36 -62.4,-36"
+      fill="none"
+      stroke="#0ea5e9"
+      stroke-width="1.5"
+      opacity="0.3"
+    />
+    <polygon
+      points="0,-55 47.6,-27.5 47.6,27.5 0,55 -47.6,27.5 -47.6,-27.5"
+      fill="none"
+      stroke="#0ea5e9"
+      stroke-width="1"
+      opacity="0.15"
+    />
+
+    <g stroke="#0ea5e9" stroke-width="1" opacity="0.2">
+      <line x1="0" y1="-55" x2="0" y2="-72"/>
+      <line x1="47.6" y1="-27.5" x2="62.4" y2="-36"/>
+      <line x1="47.6" y1="27.5" x2="62.4" y2="36"/>
+      <line x1="0" y1="55" x2="0" y2="72"/>
+      <line x1="-47.6" y1="27.5" x2="-62.4" y2="36"/>
+      <line x1="-47.6" y1="-27.5" x2="-62.4" y2="-36"/>
+    </g>
+
+    <g fill="#0ea5e9" opacity="0.4">
+      <circle cx="0" cy="-72" r="2.5"/>
+      <circle cx="62.4" cy="-36" r="2.5"/>
+      <circle cx="62.4" cy="36" r="2.5"/>
+      <circle cx="0" cy="72" r="2.5"/>
+      <circle cx="-62.4" cy="36" r="2.5"/>
+      <circle cx="-62.4" cy="-36" r="2.5"/>
+    </g>
+
+    <g filter="url(#starGlow)">
+      <polygon
+        points="0,-42 6,-6 42,0 6,6 0,42 -6,6 -42,0 -6,-6"
+        fill="url(#burstGrad)"
+        opacity="0.9"
+      />
+    </g>
+
+    <g transform="rotate(45)" opacity="0.45">
+      <polygon
+        points="0,-28 4,-4 28,0 4,4 0,28 -4,4 -28,0 -4,-4"
+        fill="#0284c7"
+      />
+    </g>
+
+    <circle cx="0" cy="0" r="8" fill="#0369a1" opacity="0.9"/>
+    <circle cx="0" cy="0" r="5" fill="#0c4a6e"/>
+
+    <g stroke="#0284c7" stroke-width="0.7" opacity="0.2">
+      <line x1="0" y1="-15" x2="0" y2="-48" stroke-dasharray="2,4"/>
+      <line x1="15" y1="0" x2="48" y2="0" stroke-dasharray="2,4"/>
+      <line x1="0" y1="15" x2="0" y2="48" stroke-dasharray="2,4"/>
+      <line x1="-15" y1="0" x2="-48" y2="0" stroke-dasharray="2,4"/>
+      <line x1="10.6" y1="-10.6" x2="33" y2="-33" stroke-dasharray="2,4"/>
+      <line x1="10.6" y1="10.6" x2="33" y2="33" stroke-dasharray="2,4"/>
+      <line x1="-10.6" y1="10.6" x2="-33" y2="33" stroke-dasharray="2,4"/>
+      <line x1="-10.6" y1="-10.6" x2="-33" y2="-33" stroke-dasharray="2,4"/>
+    </g>
+
+    <g fill="#0ea5e9">
+      <circle cx="35" cy="-20" r="1.8" opacity="0.5"/>
+      <circle cx="-25" cy="32" r="1.5" opacity="0.35"/>
+      <circle cx="18" cy="38" r="1.3" opacity="0.3"/>
+      <circle cx="-38" cy="-15" r="1.6" opacity="0.4"/>
+    </g>
+  </g>
+
+  <!-- ====== WORDMARK — vertically centered with icon at y=100 ====== -->
+  <!-- Main text block: "NovaRoute" centered, tagline below -->
+  <g transform="translate(190, 88)">
+    <!-- Nova -->
+    <text
+      font-family="'Inter', 'SF Pro Display', 'Segoe UI', system-ui, -apple-system, sans-serif"
+      font-size="72"
+      font-weight="700"
+      fill="#f1f5f9"
+      letter-spacing="-2"
+      dominant-baseline="central"
+    >Nova</text>
+
+    <!-- Route -->
+    <text
+      x="195"
+      font-family="'Inter', 'SF Pro Display', 'Segoe UI', system-ui, -apple-system, sans-serif"
+      font-size="72"
+      font-weight="300"
+      fill="#0284c7"
+      letter-spacing="-2"
+      dominant-baseline="central"
+    >Route</text>
+
+    <!-- Accent line under Route -->
+    <line x1="198" y1="30" x2="420" y2="30" stroke="url(#edgeGrad)" stroke-width="2" opacity="0.5"/>
+
+    <!-- Tagline -->
+    <text
+      x="2"
+      y="52"
+      font-family="'Inter', 'SF Pro Display', 'Segoe UI', system-ui, -apple-system, sans-serif"
+      font-size="13.5"
+      font-weight="400"
+      fill="#cbd5e1"
+      letter-spacing="4.5"
+    >ROUTING CONTROL PLANE FOR KUBERNETES</text>
+  </g>
+</svg>
