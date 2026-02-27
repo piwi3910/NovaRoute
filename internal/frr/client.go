@@ -106,7 +106,12 @@ func (c *Client) runConfig(ctx context.Context, commands []string) error {
 
 	// Check for error markers in output.
 	outStr := string(out)
-	if strings.Contains(outStr, "% ") || strings.Contains(outStr, "error reading from") || strings.Contains(outStr, "is not running") {
+	if strings.Contains(outStr, "% ") ||
+		strings.Contains(outStr, "error reading from") ||
+		strings.Contains(outStr, "is not running") ||
+		strings.Contains(outStr, "Command incomplete") ||
+		strings.Contains(outStr, "connection refused") ||
+		strings.Contains(outStr, "vtysh: error") {
 		return fmt.Errorf("frr: vtysh config error: %s", strings.TrimSpace(outStr))
 	}
 

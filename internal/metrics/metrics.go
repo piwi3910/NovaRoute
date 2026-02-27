@@ -135,6 +135,15 @@ var EventsDropped = promauto.NewCounter(
 	},
 )
 
+// MonitoringErrors tracks errors encountered during FRR state monitoring by protocol.
+var MonitoringErrors = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "novaroute_monitoring_errors_total",
+		Help: "Errors encountered during FRR state monitoring.",
+	},
+	[]string{"protocol"},
+)
+
 // Helper functions
 
 // RecordIntent increments the intents counter for the given owner, intent type, and operation.
@@ -205,4 +214,9 @@ func RecordReconcileCycleDuration(duration float64) {
 // RecordEventDropped increments the dropped events counter.
 func RecordEventDropped() {
 	EventsDropped.Inc()
+}
+
+// RecordMonitoringError increments the monitoring error counter for the given protocol.
+func RecordMonitoringError(protocol string) {
+	MonitoringErrors.WithLabelValues(protocol).Inc()
 }

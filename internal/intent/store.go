@@ -5,6 +5,7 @@ package intent
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ type PeerIntent struct {
 	SourceAddress   string
 	EBGPMultihop    uint32
 	Password        string
+	MaxPrefixes     uint32
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -371,6 +373,23 @@ func (s *Store) SetOSPFIntent(owner string, intent *OSPFIntent) error {
 	}
 	if intent.InterfaceName == "" {
 		return fmt.Errorf("interface name must not be empty")
+	}
+	if intent.AreaID == "" {
+		return fmt.Errorf("area ID must not be empty")
+	}
+	// Validate area ID format: must be dotted-decimal (e.g. "0.0.0.0") or an integer.
+	if net.ParseIP(intent.AreaID) == nil {
+		// Not a dotted-decimal IP; check if it's a plain integer.
+		valid := true
+		for _, ch := range intent.AreaID {
+			if ch < '0' || ch > '9' {
+				valid = false
+				break
+			}
+		}
+		if !valid || intent.AreaID == "" {
+			return fmt.Errorf("area ID must be in dotted-decimal format (e.g. 0.0.0.0) or an integer, got %q", intent.AreaID)
+		}
 	}
 
 	s.mu.Lock()
