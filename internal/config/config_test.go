@@ -65,7 +65,7 @@ func validConfig() *Config {
 	return &Config{
 		ListenSocket: "/run/novaroute/novaroute.sock",
 		FRR: FRRConfig{
-			SocketDir:         "/run/frr",
+			SocketDir:      "/run/frr",
 			ConnectTimeout: 10,
 			RetryInterval:  5,
 		},

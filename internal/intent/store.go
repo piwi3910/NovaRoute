@@ -16,24 +16,24 @@ import (
 
 // PeerIntent represents a BGP peer intent with metadata.
 type PeerIntent struct {
-	Owner           string
-	NeighborAddress string
-	RemoteAS        uint32
-	PeerType        v1.PeerType
-	Keepalive       uint32
-	HoldTime        uint32
+	Owner               string
+	NeighborAddress     string
+	RemoteAS            uint32
+	PeerType            v1.PeerType
+	Keepalive           uint32
+	HoldTime            uint32
 	BFDEnabled          bool
 	BFDMinRxMs          uint32
 	BFDMinTxMs          uint32
 	BFDDetectMultiplier uint32
 	Description         string
-	AddressFamilies []v1.AddressFamily
-	SourceAddress   string
-	EBGPMultihop    uint32
-	Password        string
-	MaxPrefixes     uint32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	AddressFamilies     []v1.AddressFamily
+	SourceAddress       string
+	EBGPMultihop        uint32
+	Password            string
+	MaxPrefixes         uint32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // PrefixIntent represents a prefix advertisement intent with metadata.

@@ -59,8 +59,8 @@ type Reconciler struct {
 
 	// Event publishing for FRR state changes.
 	eventPublisher EventPublisher
-	lastBGPStates  map[string]string // peer addr → state (e.g. "Established", "Idle")
-	lastBFDStates  map[string]string // peer addr → status ("up", "down")
+	lastBGPStates  map[string]string        // peer addr → state (e.g. "Established", "Idle")
+	lastBFDStates  map[string]string        // peer addr → status ("up", "down")
 	lastOSPFStates map[string]ospfLastState // neighborID → state + interface
 
 	// triggerCh signals an immediate reconciliation.
@@ -89,7 +89,7 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 		lastBGPStates:   make(map[string]string),
 		lastBFDStates:   make(map[string]string),
 		lastOSPFStates:  make(map[string]ospfLastState),
-		triggerCh:        make(chan struct{}, 1),
+		triggerCh:       make(chan struct{}, 1),
 		doneCh:          make(chan struct{}),
 	}
 }
