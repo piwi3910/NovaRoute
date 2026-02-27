@@ -1,0 +1,29 @@
+# Documentation
+docs/
+*.md
+LICENSE
+
+# CI/CD
+.github/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Build artifacts
+bin/
+coverage.out
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Development
+.claude/
