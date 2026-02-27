@@ -92,6 +92,7 @@ message BGPPeer {
   string source_address = 9;
   uint32 ebgp_multihop = 10;
   string password = 11;
+  uint32 max_prefix = 12;
 }
 
 enum PeerType {
@@ -219,6 +220,7 @@ message PeerStatus {
   string uptime = 7;
   bool bfd_enabled = 8;
   string bfd_status = 9;
+  string description = 10;
 }
 
 message PrefixStatus {

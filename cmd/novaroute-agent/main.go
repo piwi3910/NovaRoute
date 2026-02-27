@@ -159,7 +159,7 @@ func main() {
 	logger.Info("gRPC server created")
 
 	if cfg.DisconnectGracePeriod > 0 {
-		logger.Info("disconnect grace period configured (session TTL tracking not yet implemented)",
+		logger.Warn("disconnect_grace_period is configured but not yet supported; intents will be removed immediately on deregister",
 			zap.Int("grace_period_seconds", cfg.DisconnectGracePeriod),
 		)
 	}
