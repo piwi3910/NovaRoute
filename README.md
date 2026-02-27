@@ -1,5 +1,6 @@
 <p align="center">
-  <h1 align="center">NovaRoute</h1>
+  <img src="novaroute-logo-light.svg" alt="NovaRoute" width="480">
+  <br><br>
   <p align="center">
     <strong>Node-local routing control plane for Kubernetes — BGP, BFD, and OSPF via FRR</strong>
   </p>
