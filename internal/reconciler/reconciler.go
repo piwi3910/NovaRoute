@@ -53,6 +53,7 @@ type Reconciler struct {
 	appliedPrefixes map[string]*intent.PrefixIntent
 	appliedBFD      map[string]*intent.BFDIntent
 	appliedOSPF     map[string]*intent.OSPFIntent
+	peerManagedBFD  map[string]bool // BFD sessions auto-created by peer intents (keyed by bfdKey)
 	bgpConfigured   bool
 	mu              sync.Mutex
 
@@ -84,6 +85,7 @@ func NewReconciler(store *intent.Store, frrClient *frr.Client, logger *zap.Logge
 		appliedPrefixes: make(map[string]*intent.PrefixIntent),
 		appliedBFD:      make(map[string]*intent.BFDIntent),
 		appliedOSPF:     make(map[string]*intent.OSPFIntent),
+		peerManagedBFD:  make(map[string]bool),
 		lastBGPStates:   make(map[string]string),
 		lastBFDStates:   make(map[string]string),
 		lastOSPFStates:  make(map[string]ospfLastState),
@@ -192,6 +194,22 @@ func (r *Reconciler) ReconcilePeers(ctx context.Context, desired []*intent.PeerI
 	// Remove peers that are applied but no longer desired.
 	for key, ap := range r.appliedPeers {
 		if _, stillDesired := desiredMap[key]; !stillDesired {
+			// Clean up auto-created BFD session before removing the peer.
+			bfdK := bfdKey(ap.NeighborAddress)
+			if r.peerManagedBFD[bfdK] {
+				if bfdErr := r.frrClient.SetNeighborBFD(ctx, ap.NeighborAddress, false); bfdErr != nil {
+					r.logger.Warn("failed to disable BFD before peer removal",
+						zap.String("neighbor", ap.NeighborAddress), zap.Error(bfdErr))
+				}
+				if bfdErr := r.frrClient.RemoveBFDPeer(ctx, ap.NeighborAddress, ""); bfdErr != nil {
+					r.logger.Warn("failed to remove auto-created BFD session during peer removal",
+						zap.String("neighbor", ap.NeighborAddress), zap.Error(bfdErr))
+				}
+				delete(r.peerManagedBFD, bfdK)
+				delete(r.appliedBFD, bfdK)
+				delete(r.lastBFDStates, ap.NeighborAddress)
+			}
+
 			if err := r.removePeerFromFRR(ctx, ap.NeighborAddress); err != nil {
 				errs = append(errs, fmt.Errorf("remove peer %s: %w", ap.NeighborAddress, err))
 				continue
@@ -303,8 +321,12 @@ func (r *Reconciler) ReconcileBFD(ctx context.Context, desired []*intent.BFDInte
 	}
 
 	// Remove BFD sessions that are applied but no longer desired.
+	// Skip sessions managed by peer intents — those are cleaned up by ReconcilePeers.
 	for key, ab := range r.appliedBFD {
 		if _, stillDesired := desiredMap[key]; !stillDesired {
+			if r.peerManagedBFD[key] {
+				continue
+			}
 			if err := r.removeBFDFromFRR(ctx, ab.PeerAddress, ab.InterfaceName); err != nil {
 				errs = append(errs, fmt.Errorf("remove BFD %s: %w", ab.PeerAddress, err))
 				continue
@@ -969,19 +991,59 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 	}
 
 	// Link or unlink BFD session for the BGP peer.
-	{
+	bfdK := bfdKey(p.NeighborAddress)
+	if p.BFDEnabled {
+		// Auto-create BFD session with peer's BFD parameters.
+		addStart := time.Now()
+		addErr := r.frrClient.AddBFDPeer(ctx, p.NeighborAddress, p.BFDMinRxMs, p.BFDMinTxMs, p.BFDDetectMultiplier, "")
+		addDuration := time.Since(addStart).Seconds()
+		if addErr != nil {
+			metrics.RecordFRRTransaction("failure", addDuration)
+			return fmt.Errorf("add BFD peer for neighbor %s: %w", p.NeighborAddress, addErr)
+		}
+		metrics.RecordFRRTransaction("success", addDuration)
+		r.peerManagedBFD[bfdK] = true
+		r.appliedBFD[bfdK] = &intent.BFDIntent{
+			Owner:            p.Owner,
+			PeerAddress:      p.NeighborAddress,
+			MinRxMs:          p.BFDMinRxMs,
+			MinTxMs:          p.BFDMinTxMs,
+			DetectMultiplier: p.BFDDetectMultiplier,
+		}
+
+		// Tell BGP to use BFD for this neighbor.
 		bfdStart := time.Now()
-		bfdErr := r.frrClient.SetNeighborBFD(ctx, p.NeighborAddress, p.BFDEnabled)
+		bfdErr := r.frrClient.SetNeighborBFD(ctx, p.NeighborAddress, true)
 		bfdDuration := time.Since(bfdStart).Seconds()
 		if bfdErr != nil {
 			metrics.RecordFRRTransaction("failure", bfdDuration)
-			action := "enable"
-			if !p.BFDEnabled {
-				action = "disable"
-			}
-			return fmt.Errorf("%s BFD for neighbor %s: %w", action, p.NeighborAddress, bfdErr)
+			return fmt.Errorf("enable BFD for neighbor %s: %w", p.NeighborAddress, bfdErr)
 		}
 		metrics.RecordFRRTransaction("success", bfdDuration)
+	} else {
+		// Disable BFD on the BGP neighbor first.
+		bfdStart := time.Now()
+		bfdErr := r.frrClient.SetNeighborBFD(ctx, p.NeighborAddress, false)
+		bfdDuration := time.Since(bfdStart).Seconds()
+		if bfdErr != nil {
+			metrics.RecordFRRTransaction("failure", bfdDuration)
+			return fmt.Errorf("disable BFD for neighbor %s: %w", p.NeighborAddress, bfdErr)
+		}
+		metrics.RecordFRRTransaction("success", bfdDuration)
+
+		// Remove auto-created BFD session if it exists.
+		if r.peerManagedBFD[bfdK] {
+			rmStart := time.Now()
+			rmErr := r.frrClient.RemoveBFDPeer(ctx, p.NeighborAddress, "")
+			rmDuration := time.Since(rmStart).Seconds()
+			if rmErr != nil {
+				metrics.RecordFRRTransaction("failure", rmDuration)
+				return fmt.Errorf("remove BFD peer for neighbor %s: %w", p.NeighborAddress, rmErr)
+			}
+			metrics.RecordFRRTransaction("success", rmDuration)
+			delete(r.peerManagedBFD, bfdK)
+			delete(r.appliedBFD, bfdK)
+		}
 	}
 
 	r.logger.Info("applied peer intent",
@@ -1306,6 +1368,15 @@ func peerEqual(a, b *intent.PeerIntent) bool {
 		return false
 	}
 	if a.BFDEnabled != b.BFDEnabled {
+		return false
+	}
+	if a.BFDMinRxMs != b.BFDMinRxMs {
+		return false
+	}
+	if a.BFDMinTxMs != b.BFDMinTxMs {
+		return false
+	}
+	if a.BFDDetectMultiplier != b.BFDDetectMultiplier {
 		return false
 	}
 	if a.EBGPMultihop != b.EBGPMultihop {

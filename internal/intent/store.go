@@ -22,8 +22,11 @@ type PeerIntent struct {
 	PeerType        v1.PeerType
 	Keepalive       uint32
 	HoldTime        uint32
-	BFDEnabled      bool
-	Description     string
+	BFDEnabled          bool
+	BFDMinRxMs          uint32
+	BFDMinTxMs          uint32
+	BFDDetectMultiplier uint32
+	Description         string
 	AddressFamilies []v1.AddressFamily
 	SourceAddress   string
 	EBGPMultihop    uint32

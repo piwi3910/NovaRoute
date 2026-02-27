@@ -19,17 +19,20 @@ func TestSetAndGetPeerIntent(t *testing.T) {
 	s := newTestStore()
 
 	intent := &PeerIntent{
-		NeighborAddress: "192.168.1.1",
-		RemoteAS:        65001,
-		PeerType:        v1.PeerType_PEER_TYPE_EXTERNAL,
-		Keepalive:       30,
-		HoldTime:        90,
-		BFDEnabled:      true,
-		Description:     "test peer",
-		AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
-		SourceAddress:   "10.0.0.1",
-		EBGPMultihop:    2,
-		Password:        "secret",
+		NeighborAddress:     "192.168.1.1",
+		RemoteAS:            65001,
+		PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
+		Keepalive:           30,
+		HoldTime:            90,
+		BFDEnabled:          true,
+		BFDMinRxMs:          300,
+		BFDMinTxMs:          300,
+		BFDDetectMultiplier: 3,
+		Description:         "test peer",
+		AddressFamilies:     []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+		SourceAddress:       "10.0.0.1",
+		EBGPMultihop:        2,
+		Password:            "secret",
 	}
 
 	err := s.SetPeerIntent("novaedge", intent)
@@ -63,6 +66,15 @@ func TestSetAndGetPeerIntent(t *testing.T) {
 	}
 	if !p.BFDEnabled {
 		t.Error("expected BFD enabled")
+	}
+	if p.BFDMinRxMs != 300 {
+		t.Errorf("expected BFDMinRxMs 300, got %d", p.BFDMinRxMs)
+	}
+	if p.BFDMinTxMs != 300 {
+		t.Errorf("expected BFDMinTxMs 300, got %d", p.BFDMinTxMs)
+	}
+	if p.BFDDetectMultiplier != 3 {
+		t.Errorf("expected BFDDetectMultiplier 3, got %d", p.BFDDetectMultiplier)
 	}
 	if p.Description != "test peer" {
 		t.Errorf("expected description 'test peer', got %q", p.Description)
