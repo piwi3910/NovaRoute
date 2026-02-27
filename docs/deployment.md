@@ -45,7 +45,7 @@ All NovaRoute resources are deployed into a dedicated namespace:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: novaroute-system
+  name: nova-system
   labels:
     app.kubernetes.io/name: novaroute
     app.kubernetes.io/part-of: novaroute
@@ -62,7 +62,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: novaroute-agent
-  namespace: novaroute-system
+  namespace: nova-system
   labels:
     app.kubernetes.io/name: novaroute-agent
     app.kubernetes.io/component: agent
@@ -81,7 +81,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: novaroute-config
-  namespace: novaroute-system
+  namespace: nova-system
   labels:
     app.kubernetes.io/name: novaroute-agent
     app.kubernetes.io/component: config
@@ -153,7 +153,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: novaroute-frr-bootstrap
-  namespace: novaroute-system
+  namespace: nova-system
   labels:
     app.kubernetes.io/name: novaroute-agent
     app.kubernetes.io/component: frr-config
@@ -217,7 +217,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: novaroute-agent
-  namespace: novaroute-system
+  namespace: nova-system
   labels:
     app.kubernetes.io/name: novaroute-agent
     app.kubernetes.io/component: agent
@@ -406,13 +406,13 @@ Verify the rollout:
 
 ```bash
 # Check that pods are running on all nodes
-kubectl -n novaroute-system get pods -o wide
+kubectl -n nova-system get pods -o wide
 
 # Check agent logs
-kubectl -n novaroute-system logs -l app=novaroute-agent -c novaroute-agent
+kubectl -n nova-system logs -l app=novaroute-agent -c novaroute-agent
 
 # Check FRR sidecar logs
-kubectl -n novaroute-system logs -l app=novaroute-agent -c frr
+kubectl -n nova-system logs -l app=novaroute-agent -c frr
 ```
 
 ---
@@ -476,7 +476,7 @@ Images are built and published automatically on release tags. Use a pinned versi
 To pull images from GHCR in a private cluster, create an image pull secret:
 
 ```bash
-kubectl -n novaroute-system create secret docker-registry ghcr-pull-secret \
+kubectl -n nova-system create secret docker-registry ghcr-pull-secret \
     --docker-server=ghcr.io \
     --docker-username=YOUR_GITHUB_USERNAME \
     --docker-password=YOUR_GITHUB_PAT
