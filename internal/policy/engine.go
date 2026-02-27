@@ -153,7 +153,7 @@ func (e *Engine) validateAllowedCIDRs(owner string, ip net.IP, ipNet *net.IPNet,
 				zap.String("cidr", allowedCIDR),
 				zap.Error(err),
 			)
-			continue
+			return fmt.Errorf("owner %s has invalid allowed CIDR in policy config: %s: %w", owner, allowedCIDR, err)
 		}
 		// The prefix is allowed if the allowed CIDR contains the network
 		// address of the advertised prefix. This means the advertised
