@@ -90,10 +90,19 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	r.logger.Debug("starting reconciliation cycle")
 	start := time.Now()
 
+	// Guard: skip reconciliation if FRR client is not yet available.
+	r.mu.Lock()
+	hasFRR := r.frrClient != nil
+	r.mu.Unlock()
+	if !hasFRR {
+		r.logger.Debug("skipping reconciliation: FRR client not available")
+		return nil
+	}
+
 	// Ensure BGP global is configured before reconciling peers/prefixes.
 	if err := r.ensureBGPGlobal(ctx); err != nil {
 		r.logger.Error("failed to ensure BGP global config", zap.Error(err))
-		// Continue anyway — peer/prefix operations will fail but BFD/OSPF may work.
+		return fmt.Errorf("ensure BGP global: %w", err)
 	}
 
 	desiredPeers := r.intentStore.GetPeerIntents()
@@ -120,6 +129,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 
 	if len(errs) > 0 {
 		metrics.RecordFRRTransaction("failure", duration)
+		metrics.RecordReconcileCycleDuration(duration)
 		r.logger.Error("reconciliation completed with errors",
 			zap.Int("error_count", len(errs)),
 			zap.Duration("duration", time.Since(start)),
@@ -128,6 +138,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	}
 
 	metrics.RecordFRRTransaction("success", duration)
+	metrics.RecordReconcileCycleDuration(duration)
 	r.logger.Debug("reconciliation cycle complete",
 		zap.Duration("duration", time.Since(start)),
 	)
@@ -516,6 +527,36 @@ func (r *Reconciler) SetEventPublisher(ep EventPublisher) {
 	r.eventPublisher = ep
 }
 
+// findPeerOwner returns the owner of a peer intent by neighbor address.
+func (r *Reconciler) findPeerOwner(addr string) string {
+	for _, pi := range r.intentStore.GetPeerIntents() {
+		if pi.NeighborAddress == addr {
+			return pi.Owner
+		}
+	}
+	return ""
+}
+
+// findBFDOwner returns the owner of a BFD intent by peer address.
+func (r *Reconciler) findBFDOwner(addr string) string {
+	for _, bi := range r.intentStore.GetBFDIntents() {
+		if bi.PeerAddress == addr {
+			return bi.Owner
+		}
+	}
+	return ""
+}
+
+// findOSPFOwnerByNeighbor returns the owner of an OSPF intent by matching interface.
+func (r *Reconciler) findOSPFOwnerByNeighbor(iface string) string {
+	for _, oi := range r.intentStore.GetOSPFIntents() {
+		if oi.InterfaceName == iface {
+			return oi.Owner
+		}
+	}
+	return ""
+}
+
 // monitorFRRState queries FRR for current BGP neighbor, BFD peer, and OSPF
 // neighbor state, compares with the last-known state, and publishes events
 // for any changes. It is called at the end of each successful reconciliation
@@ -538,12 +579,12 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 			if existed && prev != nbr.State {
 				// State changed.
 				if nbr.State == "Established" {
-					r.eventPublisher.PublishRouteEvent(1, "", fmt.Sprintf("BGP peer %s is now %s (was %s)", nbr.Address, nbr.State, prev), map[string]string{"peer": nbr.Address, "state": nbr.State, "previous_state": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_PEER_UP), r.findPeerOwner(nbr.Address), fmt.Sprintf("BGP peer %s is now %s (was %s)", nbr.Address, nbr.State, prev), map[string]string{"peer": nbr.Address, "state": nbr.State, "previous_state": prev})
 				} else if prev == "Established" {
-					r.eventPublisher.PublishRouteEvent(2, "", fmt.Sprintf("BGP peer %s is now %s (was %s)", nbr.Address, nbr.State, prev), map[string]string{"peer": nbr.Address, "state": nbr.State, "previous_state": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_PEER_DOWN), r.findPeerOwner(nbr.Address), fmt.Sprintf("BGP peer %s is now %s (was %s)", nbr.Address, nbr.State, prev), map[string]string{"peer": nbr.Address, "state": nbr.State, "previous_state": prev})
 				}
 			} else if !existed && nbr.State == "Established" {
-				r.eventPublisher.PublishRouteEvent(1, "", fmt.Sprintf("BGP peer %s is Established", nbr.Address), map[string]string{"peer": nbr.Address, "state": nbr.State})
+				r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_PEER_UP), r.findPeerOwner(nbr.Address), fmt.Sprintf("BGP peer %s is Established", nbr.Address), map[string]string{"peer": nbr.Address, "state": nbr.State})
 			}
 			r.lastBGPStates[nbr.Address] = nbr.State
 		}
@@ -558,9 +599,9 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 			prev, existed := r.lastBFDStates[peer.PeerAddress]
 			if existed && prev != peer.Status {
 				if peer.Status == "up" {
-					r.eventPublisher.PublishRouteEvent(5, "", fmt.Sprintf("BFD peer %s is now up (was %s)", peer.PeerAddress, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_BFD_UP), r.findBFDOwner(peer.PeerAddress), fmt.Sprintf("BFD peer %s is now up (was %s)", peer.PeerAddress, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
 				} else {
-					r.eventPublisher.PublishRouteEvent(6, "", fmt.Sprintf("BFD peer %s is now %s (was %s)", peer.PeerAddress, peer.Status, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_BFD_DOWN), r.findBFDOwner(peer.PeerAddress), fmt.Sprintf("BFD peer %s is now %s (was %s)", peer.PeerAddress, peer.Status, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
 				}
 			}
 			r.lastBFDStates[peer.PeerAddress] = peer.Status
@@ -576,9 +617,9 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 			prev, existed := r.lastOSPFStates[nbr.NeighborID]
 			if existed && prev != nbr.State {
 				if nbr.State == "Full" {
-					r.eventPublisher.PublishRouteEvent(7, "", fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_UP), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
 				} else if prev == "Full" {
-					r.eventPublisher.PublishRouteEvent(8, "", fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
 				}
 			}
 			r.lastOSPFStates[nbr.NeighborID] = nbr.State
@@ -622,9 +663,12 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 				errs = append(errs, fmt.Errorf("withdraw prefix %s: %w", p.Prefix, err))
 			} else {
 				r.logger.Info("WithdrawAll: withdrew prefix", zap.String("prefix", p.Prefix))
+				delete(r.appliedPrefixes, key)
 			}
+		} else {
+			// Non-BGP prefixes are managed via interface config, just clear tracked state.
+			delete(r.appliedPrefixes, key)
 		}
-		delete(r.appliedPrefixes, key)
 	}
 
 	// 2. Remove all applied BFD sessions.
@@ -637,13 +681,13 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("remove BFD peer %s: %w", b.PeerAddress, err))
 		} else {
 			r.logger.Info("WithdrawAll: removed BFD peer", zap.String("peer", b.PeerAddress))
+			delete(r.appliedBFD, key)
 		}
-		delete(r.appliedBFD, key)
 	}
 
 	// 3. Disable all applied OSPF interfaces.
 	for key, o := range r.appliedOSPF {
-		if err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID); err != nil {
+		if err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive); err != nil {
 			r.logger.Error("WithdrawAll: failed to disable OSPF interface",
 				zap.String("interface", o.InterfaceName),
 				zap.String("area", o.AreaID),
@@ -655,8 +699,8 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 				zap.String("interface", o.InterfaceName),
 				zap.String("area", o.AreaID),
 			)
+			delete(r.appliedOSPF, key)
 		}
-		delete(r.appliedOSPF, key)
 	}
 
 	// 4. Remove all applied BGP peers last.
@@ -669,8 +713,8 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("remove peer %s: %w", p.NeighborAddress, err))
 		} else {
 			r.logger.Info("WithdrawAll: removed BGP peer", zap.String("neighbor", p.NeighborAddress))
+			delete(r.appliedPeers, key)
 		}
-		delete(r.appliedPeers, key)
 	}
 
 	if len(errs) > 0 {
@@ -802,10 +846,7 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 
 		// Set maximum-prefix safety limit (warning-only mode so sessions aren't killed).
 		if err := r.frrClient.SetNeighborMaxPrefix(ctx, p.NeighborAddress, 50, true, afiName); err != nil {
-			r.logger.Warn("failed to set max-prefix for neighbor",
-				zap.String("neighbor", p.NeighborAddress),
-				zap.Error(err),
-			)
+			return fmt.Errorf("set max-prefix for neighbor %s (afi=%s): %w", p.NeighborAddress, afiName, err)
 		}
 	}
 
@@ -965,7 +1006,7 @@ func (r *Reconciler) applyOSPFIntent(ctx context.Context, o *intent.OSPFIntent) 
 // removeOSPFFromFRR disables OSPF on an interface in FRR.
 func (r *Reconciler) removeOSPFFromFRR(ctx context.Context, o *intent.OSPFIntent) error {
 	start := time.Now()
-	err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID)
+	err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
