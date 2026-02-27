@@ -61,7 +61,15 @@ rules:
       - update
       - patch
       - delete
-  # RBAC resources (for creating RBAC for managed agent)
+  # Events
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  # RBAC resources (for creating RBAC for managed components)
   - apiGroups:
       - rbac.authorization.k8s.io
     resources:
@@ -88,14 +96,19 @@ rules:
       - update
       - patch
       - delete
-  # Events
+  # PodDisruptionBudgets
   - apiGroups:
-      - ""
+      - policy
     resources:
-      - events
+      - poddisruptionbudgets
     verbs:
+      - get
+      - list
+      - watch
       - create
+      - update
       - patch
+      - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
