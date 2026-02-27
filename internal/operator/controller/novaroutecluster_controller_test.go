@@ -26,8 +26,8 @@ func newScheme() *runtime.Scheme {
 	return s
 }
 
-func boolPtr(b bool) *bool     { return &b }
-func int32Ptr(i int32) *int32  { return &i }
+func boolPtr(b bool) *bool    { return &b }
+func int32Ptr(i int32) *int32 { return &i }
 
 func newTestCluster() *novaroutev1alpha1.NovaRouteCluster {
 	return &novaroutev1alpha1.NovaRouteCluster{

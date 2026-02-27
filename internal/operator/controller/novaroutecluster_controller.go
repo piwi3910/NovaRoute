@@ -248,12 +248,12 @@ func (r *NovaRouteClusterReconciler) reconcileClusterRoleBinding(ctx context.Con
 
 // agentConfig represents the JSON config the NovaRoute agent reads.
 type agentConfig struct {
-	ListenSocket         string                    `json:"listen_socket"`
-	FRR                  agentFRRConfig             `json:"frr"`
-	Owners               map[string]agentOwnerEntry `json:"owners"`
-	LogLevel             string                     `json:"log_level"`
-	MetricsAddress       string                     `json:"metrics_address"`
-	DisconnectGracePeriod int                       `json:"disconnect_grace_period"`
+	ListenSocket          string                     `json:"listen_socket"`
+	FRR                   agentFRRConfig             `json:"frr"`
+	Owners                map[string]agentOwnerEntry `json:"owners"`
+	LogLevel              string                     `json:"log_level"`
+	MetricsAddress        string                     `json:"metrics_address"`
+	DisconnectGracePeriod int                        `json:"disconnect_grace_period"`
 }
 
 type agentFRRConfig struct {
@@ -263,7 +263,7 @@ type agentFRRConfig struct {
 }
 
 type agentOwnerEntry struct {
-	Token           string              `json:"token"`
+	Token           string               `json:"token"`
 	AllowedPrefixes agentAllowedPrefixes `json:"allowed_prefixes"`
 }
 
@@ -396,8 +396,8 @@ service integrated-vtysh-config
 			Labels:    r.getLabels(cluster, "frr-config"),
 		},
 		Data: map[string]string{
-			"daemons":   daemonsContent,
-			"frr.conf":  frrConf,
+			"daemons":    daemonsContent,
+			"frr.conf":   frrConf,
 			"vtysh.conf": vtyshConf,
 		},
 	}
