@@ -1134,6 +1134,8 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 	}
 
 	// Build BFD session status list, merging with real FRR state.
+	// Track which addresses are covered to avoid duplicates.
+	bfdCovered := make(map[string]bool)
 	for owner, oi := range allIntents {
 		for _, b := range oi.BFD {
 			bs := &v1.BFDSessionStatus{
@@ -1144,15 +1146,42 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				DetectMultiplier: b.DetectMultiplier,
 			}
 			if frrClient != nil {
-				bs.State = "configured" // Intent exists but not in FRR yet
+				bs.State = "configured"
 			} else {
-				bs.State = "pending" // FRR not connected, state unknown
+				bs.State = "pending"
 			}
 			if bfd, ok := bfdStates[b.PeerAddress]; ok {
 				bs.State = bfd.Status
 				bs.Uptime = bfd.Uptime
 			}
 			resp.BfdSessions = append(resp.BfdSessions, bs)
+			bfdCovered[b.PeerAddress] = true
+		}
+	}
+	// Include auto-linked BFD sessions from peers with BFDEnabled=true.
+	for owner, oi := range allIntents {
+		for _, p := range oi.Peers {
+			if !p.BFDEnabled || bfdCovered[p.NeighborAddress] {
+				continue
+			}
+			bs := &v1.BFDSessionStatus{
+				PeerAddress:      p.NeighborAddress,
+				Owner:            owner,
+				MinRxMs:          p.BFDMinRxMs,
+				MinTxMs:          p.BFDMinTxMs,
+				DetectMultiplier: p.BFDDetectMultiplier,
+			}
+			if frrClient != nil {
+				bs.State = "configured"
+			} else {
+				bs.State = "pending"
+			}
+			if bfd, ok := bfdStates[p.NeighborAddress]; ok {
+				bs.State = bfd.Status
+				bs.Uptime = bfd.Uptime
+			}
+			resp.BfdSessions = append(resp.BfdSessions, bs)
+			bfdCovered[p.NeighborAddress] = true
 		}
 	}
 
