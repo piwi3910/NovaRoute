@@ -1,11 +1,12 @@
 # NovaRoute Makefile
-# Build automation for novaroute-agent and novaroutectl binaries.
+# Build automation for novaroute-agent, novaroutectl, and novaroute-operator binaries.
 
-BINARY_DIR    := bin
-AGENT_BINARY  := $(BINARY_DIR)/novaroute-agent
-CTL_BINARY    := $(BINARY_DIR)/novaroutectl
-DOCKER_IMAGE  := ghcr.io/piwi3910/novaroute/novaroute-agent
-DOCKER_TAG    := latest
+BINARY_DIR       := bin
+AGENT_BINARY     := $(BINARY_DIR)/novaroute-agent
+CTL_BINARY       := $(BINARY_DIR)/novaroutectl
+OPERATOR_BINARY  := $(BINARY_DIR)/novaroute-operator
+DOCKER_IMAGE     := ghcr.io/piwi3910/novaroute/novaroute-agent
+DOCKER_TAG       := latest
 
 GO       := go
 GOFLAGS  := -ldflags="-s -w"
@@ -13,10 +14,13 @@ GOTEST   := $(GO) test
 GOVET    := $(GO) vet
 PROTOC   := protoc
 
-.PHONY: all build build-agent build-ctl test lint proto docker-build clean help
+.PHONY: all build build-all build-agent build-ctl build-operator test lint proto generate docker-build clean help
 
-## build: Build both novaroute-agent and novaroutectl binaries
+## build: Build novaroute-agent and novaroutectl binaries
 build: build-agent build-ctl
+
+## build-all: Build all three binaries (agent, ctl, operator)
+build-all: build-agent build-ctl build-operator
 
 ## build-agent: Build the novaroute-agent binary
 build-agent:
@@ -29,6 +33,17 @@ build-ctl:
 	@mkdir -p $(BINARY_DIR)
 	$(GO) build $(GOFLAGS) -o $(CTL_BINARY) ./cmd/novaroutectl/
 	@echo "Built $(CTL_BINARY)"
+
+## build-operator: Build the novaroute-operator binary
+build-operator:
+	@mkdir -p $(BINARY_DIR)
+	$(GO) build $(GOFLAGS) -o $(OPERATOR_BINARY) ./cmd/novaroute-operator/
+	@echo "Built $(OPERATOR_BINARY)"
+
+## generate: Generate deepcopy methods and CRD manifests
+generate:
+	controller-gen object paths=./api/v1alpha1/
+	controller-gen crd paths=./api/v1alpha1/ output:crd:dir=config/crd
 
 ## test: Run all tests with race detection
 test:
