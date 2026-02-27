@@ -50,8 +50,8 @@ Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer 
 | **Language** | Go 1.26 |
 | **License** | Apache-2.0 |
 | **Source** | [github.com/piwi3910/NovaRoute](https://github.com/piwi3910/NovaRoute) |
-| **Docker Image** | `ghcr.io/piwi3910/novaroute-agent` (linux/amd64, linux/arm64) |
-| **FRR Image** | `ghcr.io/piwi3910/novaroute-frr:10.5.1` |
+| **Docker Image** | `ghcr.io/piwi3910/novaroute/novaroute-agent` (linux/amd64, linux/arm64) |
+| **FRR Image** | `ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1` |
 | **Status** | Core routing features complete -- BGP, BFD, OSPF, reconciliation, policy engine, event streaming |
 
 ---
