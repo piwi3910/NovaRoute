@@ -57,7 +57,7 @@ spec:
       containers:
         # NovaRoute agent -- the routing control plane
         - name: novaroute-agent
-          image: ghcr.io/piwi3910/novaroute-agent:latest
+          image: ghcr.io/piwi3910/novaroute/novaroute-agent:latest
           imagePullPolicy: Always
           args:
             - --config=/etc/novaroute/config.json
@@ -103,7 +103,7 @@ spec:
 
         # FRR sidecar -- the routing engine (bgpd, bfdd, ospfd, zebra, mgmtd)
         - name: frr
-          image: ghcr.io/piwi3910/novaroute-frr:10.5.1
+          image: ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1
           imagePullPolicy: Always
           resources:
             requests:

@@ -70,7 +70,7 @@ make test
 Pull the pre-built multi-architecture image:
 
 ```bash
-docker pull ghcr.io/piwi3910/novaroute-agent:latest
+docker pull ghcr.io/piwi3910/novaroute/novaroute-agent:latest
 ```
 
 This image supports both `linux/amd64` and `linux/arm64`.
@@ -84,7 +84,7 @@ docker run -d \
   -v /run/frr:/run/frr \
   -v /run/novaroute:/run/novaroute \
   -v /etc/novaroute:/etc/novaroute:ro \
-  ghcr.io/piwi3910/novaroute-agent:latest \
+  ghcr.io/piwi3910/novaroute/novaroute-agent:latest \
   --config=/etc/novaroute/config.json
 ```
 
