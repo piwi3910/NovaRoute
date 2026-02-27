@@ -48,7 +48,9 @@ type Server struct {
 	eventBus    *EventBus
 
 	// FRR client for querying real state in GetStatus.
-	frrClient *frr.Client
+	frrClient      *frr.Client
+	frrMu          sync.RWMutex
+	frrConnectedAt time.Time
 
 	// Session tracking
 	sessions   map[string]*Session // keyed by owner
@@ -86,7 +88,10 @@ func (s *Server) EventBus() *EventBus {
 
 // SetFRRClient sets the FRR client used by GetStatus to query real FRR state.
 func (s *Server) SetFRRClient(client *frr.Client) {
+	s.frrMu.Lock()
+	defer s.frrMu.Unlock()
 	s.frrClient = client
+	s.frrConnectedAt = time.Now()
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +280,7 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 
 	// Publish BGP configured event.
 	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_UNSPECIFIED, // BGP global config change (no dedicated event type)
+		Type:          v1.EventType_EVENT_TYPE_BGP_CONFIG_CHANGED,
 		Detail:        fmt.Sprintf("BGP global config updated: AS=%d router_id=%s (was AS=%d router_id=%s)", req.GetLocalAs(), req.GetRouterId(), prevAS, prevRouterID),
 		TimestampUnix: time.Now().Unix(),
 		Owner:         owner,
@@ -338,6 +343,9 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 	}
 	if peer.GetHoldTime() > 0 && peer.GetHoldTime() < 3 {
 		return nil, status.Errorf(codes.InvalidArgument, "hold_time must be at least 3 seconds, got %d", peer.GetHoldTime())
+	}
+	if peer.GetKeepalive() > 0 && peer.GetHoldTime() < 3*peer.GetKeepalive() {
+		return nil, status.Errorf(codes.InvalidArgument, "hold_time (%d) must be at least 3x keepalive (%d) per RFC 4271", peer.GetHoldTime(), peer.GetKeepalive())
 	}
 	if peer.GetRemoteAs() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "peer remote_as must not be zero")
@@ -409,17 +417,6 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_PEER_UP,
-		Detail:        fmt.Sprintf("peer %s (AS %d) applied by %s", peer.GetNeighborAddress(), peer.GetRemoteAs(), owner),
-		TimestampUnix: time.Now().Unix(),
-		Owner:         owner,
-		Metadata: map[string]string{
-			"neighbor":  peer.GetNeighborAddress(),
-			"remote_as": fmt.Sprintf("%d", peer.GetRemoteAs()),
-			"action":    "applied",
-		},
-	})
 	metrics.RecordEvent("peer_applied")
 
 	s.logger.Info("peer intent applied",
@@ -481,17 +478,6 @@ func (s *Server) RemovePeer(ctx context.Context, req *v1.RemovePeerRequest) (*v1
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	// Publish peer removed event.
-	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_PEER_DOWN,
-		Detail:        fmt.Sprintf("peer %s removed by %s", neighborAddr, owner),
-		TimestampUnix: time.Now().Unix(),
-		Owner:         owner,
-		Metadata: map[string]string{
-			"neighbor": neighborAddr,
-			"action":   "removed",
-		},
-	})
 	metrics.RecordEvent("peer_removed")
 
 	s.logger.Info("peer intent removed",
@@ -794,16 +780,6 @@ func (s *Server) EnableBFD(ctx context.Context, req *v1.EnableBFDRequest) (*v1.E
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_BFD_UP,
-		Detail:        fmt.Sprintf("BFD session %s enabled by %s", req.GetPeerAddress(), owner),
-		TimestampUnix: time.Now().Unix(),
-		Owner:         owner,
-		Metadata: map[string]string{
-			"peer_address": req.GetPeerAddress(),
-			"action":       "enabled",
-		},
-	})
 	metrics.RecordEvent("bfd_enabled")
 
 	s.logger.Info("BFD intent applied",
@@ -867,17 +843,6 @@ func (s *Server) DisableBFD(ctx context.Context, req *v1.DisableBFDRequest) (*v1
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	// Publish BFD disabled event.
-	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_BFD_DOWN,
-		Detail:        fmt.Sprintf("BFD session %s disabled by %s", peerAddr, owner),
-		TimestampUnix: time.Now().Unix(),
-		Owner:         owner,
-		Metadata: map[string]string{
-			"peer_address": peerAddr,
-			"action":       "disabled",
-		},
-	})
 	metrics.RecordEvent("bfd_disabled")
 
 	s.logger.Info("BFD intent disabled",
@@ -958,6 +923,9 @@ func (s *Server) EnableOSPF(ctx context.Context, req *v1.EnableOSPFRequest) (*v1
 	if ospfIntent.DeadInterval == 0 {
 		ospfIntent.DeadInterval = 40
 	}
+	if ospfIntent.DeadInterval > 0 && ospfIntent.HelloInterval > 0 && ospfIntent.DeadInterval < ospfIntent.HelloInterval {
+		return nil, status.Errorf(codes.InvalidArgument, "dead_interval (%d) must be >= hello_interval (%d)", ospfIntent.DeadInterval, ospfIntent.HelloInterval)
+	}
 
 	// Store intent.
 	if err := s.intentStore.SetOSPFIntent(owner, ospfIntent); err != nil {
@@ -975,17 +943,6 @@ func (s *Server) EnableOSPF(ctx context.Context, req *v1.EnableOSPFRequest) (*v1
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_UP,
-		Detail:        fmt.Sprintf("OSPF interface %s enabled by %s", req.GetInterfaceName(), owner),
-		TimestampUnix: time.Now().Unix(),
-		Owner:         owner,
-		Metadata: map[string]string{
-			"interface_name": req.GetInterfaceName(),
-			"area_id":        req.GetAreaId(),
-			"action":         "enabled",
-		},
-	})
 	metrics.RecordEvent("ospf_enabled")
 
 	s.logger.Info("OSPF intent applied",
@@ -1044,17 +1001,6 @@ func (s *Server) DisableOSPF(ctx context.Context, req *v1.DisableOSPFRequest) (*
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	// Publish OSPF disabled event.
-	s.eventBus.Publish(&v1.RouteEvent{
-		Type:          v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN,
-		Detail:        fmt.Sprintf("OSPF interface %s disabled by %s", ifaceName, owner),
-		TimestampUnix: time.Now().Unix(),
-		Owner:         owner,
-		Metadata: map[string]string{
-			"interface_name": ifaceName,
-			"action":         "disabled",
-		},
-	})
 	metrics.RecordEvent("ospf_disabled")
 
 	s.logger.Info("OSPF intent disabled",
@@ -1092,29 +1038,41 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 		allIntents = s.intentStore.GetAllIntents()
 	}
 
+	// Snapshot the FRR client under the read lock so we avoid data races.
+	s.frrMu.RLock()
+	frrClient := s.frrClient
+	frrConnectedAt := s.frrConnectedAt
+	s.frrMu.RUnlock()
+
 	// Query real FRR state if the client is available.
 	var bgpStates map[string]*frr.BGPNeighborState
 	var bfdStates map[string]*frr.BFDPeerState
 	var ospfStates map[string]*frr.OSPFNeighborState
 
-	if s.frrClient != nil {
-		if neighbors, err := s.frrClient.GetBGPNeighbors(ctx); err == nil {
+	if frrClient != nil {
+		if neighbors, err := frrClient.GetBGPNeighbors(ctx); err == nil {
 			bgpStates = make(map[string]*frr.BGPNeighborState, len(neighbors))
 			for i := range neighbors {
 				bgpStates[neighbors[i].Address] = &neighbors[i]
 			}
+		} else {
+			s.logger.Warn("GetStatus: failed to query BGP neighbors from FRR", zap.Error(err))
 		}
-		if peers, err := s.frrClient.GetBFDPeers(ctx); err == nil {
+		if peers, err := frrClient.GetBFDPeers(ctx); err == nil {
 			bfdStates = make(map[string]*frr.BFDPeerState, len(peers))
 			for i := range peers {
 				bfdStates[peers[i].PeerAddress] = &peers[i]
 			}
+		} else {
+			s.logger.Warn("GetStatus: failed to query BFD peers from FRR", zap.Error(err))
 		}
-		if neighbors, err := s.frrClient.GetOSPFNeighbors(ctx); err == nil {
+		if neighbors, err := frrClient.GetOSPFNeighbors(ctx); err == nil {
 			ospfStates = make(map[string]*frr.OSPFNeighborState, len(neighbors))
 			for i := range neighbors {
 				ospfStates[neighbors[i].NeighborID] = &neighbors[i]
 			}
+		} else {
+			s.logger.Warn("GetStatus: failed to query OSPF neighbors from FRR", zap.Error(err))
 		}
 	}
 
@@ -1128,7 +1086,7 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				BfdEnabled:      p.BFDEnabled,
 				Description:     p.Description,
 			}
-			if s.frrClient != nil {
+			if frrClient != nil {
 				ps.State = "configured" // Intent exists but peer not in FRR yet
 			} else {
 				ps.State = "pending" // FRR not connected, state unknown
@@ -1175,7 +1133,7 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				MinTxMs:          b.MinTxMs,
 				DetectMultiplier: b.DetectMultiplier,
 			}
-			if s.frrClient != nil {
+			if frrClient != nil {
 				bs.State = "configured" // Intent exists but not in FRR yet
 			} else {
 				bs.State = "pending" // FRR not connected, state unknown
@@ -1197,7 +1155,7 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				Owner:         owner,
 				Cost:          o.Cost,
 			}
-			if s.frrClient != nil {
+			if frrClient != nil {
 				os.State = "configured" // Intent exists but not in FRR yet
 			} else {
 				os.State = "pending" // FRR not connected, state unknown
@@ -1222,12 +1180,14 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 		Version:   "unknown",
 		Connected: false,
 	}
-	if s.frrClient != nil {
-		resp.FrrStatus.Connected = s.frrClient.IsReady()
-		if version, err := s.frrClient.GetVersion(ctx); err == nil {
+	if frrClient != nil {
+		resp.FrrStatus.Connected = frrClient.IsReady()
+		if version, err := frrClient.GetVersion(ctx); err == nil {
 			resp.FrrStatus.Version = version
+		} else {
+			s.logger.Warn("GetStatus: failed to query FRR version", zap.Error(err))
 		}
-		resp.FrrStatus.Uptime = "unknown"
+		resp.FrrStatus.Uptime = time.Since(frrConnectedAt).Truncate(time.Second).String()
 	}
 
 	return resp, nil
@@ -1273,8 +1233,8 @@ func (s *Server) StreamEvents(req *v1.StreamEventsRequest, stream grpc.ServerStr
 // Helpers
 // ---------------------------------------------------------------------------
 
-// protocolString converts a v1.Protocol enum value to a lowercase string
-// suitable for use as a map key in the intent store.
+// protocolString converts a protocol enum to a lowercase string key.
+// NOTE: This helper is duplicated across intent, reconciler, and server packages.
 func protocolString(p v1.Protocol) string {
 	switch p {
 	case v1.Protocol_PROTOCOL_BGP:

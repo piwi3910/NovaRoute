@@ -127,7 +127,8 @@ func ospfKey(ifaceName string) string {
 	return "ospf:" + ifaceName
 }
 
-// protocolString converts a v1.Protocol enum to a lowercase string.
+// protocolString converts a protocol enum to a lowercase string key.
+// NOTE: This helper is duplicated across intent, reconciler, and server packages.
 func protocolString(p v1.Protocol) string {
 	switch p {
 	case v1.Protocol_PROTOCOL_BGP:
@@ -378,7 +379,11 @@ func (s *Store) SetOSPFIntent(owner string, intent *OSPFIntent) error {
 		return fmt.Errorf("area ID must not be empty")
 	}
 	// Validate area ID format: must be dotted-decimal (e.g. "0.0.0.0") or an integer.
-	if net.ParseIP(intent.AreaID) == nil {
+	if ip := net.ParseIP(intent.AreaID); ip != nil {
+		if ip.To4() == nil {
+			return fmt.Errorf("OSPF area_id must be a dotted-decimal IPv4 address or integer, not IPv6: %s", intent.AreaID)
+		}
+	} else {
 		// Not a dotted-decimal IP; check if it's a plain integer.
 		valid := true
 		for _, ch := range intent.AreaID {

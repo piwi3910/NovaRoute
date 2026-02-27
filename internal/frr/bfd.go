@@ -39,12 +39,18 @@ func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, 
 }
 
 // RemoveBFDPeer removes a single-hop BFD session for the given peer address.
-func (c *Client) RemoveBFDPeer(ctx context.Context, peerAddr string) error {
-	c.log.Info("removing BFD peer", zap.String("peer_addr", peerAddr))
+// If iface is non-empty, it is appended to the peer command to disambiguate
+// multi-interface BFD sessions.
+func (c *Client) RemoveBFDPeer(ctx context.Context, peerAddr string, iface string) error {
+	c.log.Info("removing BFD peer", zap.String("peer_addr", peerAddr), zap.String("interface", iface))
 
+	peerCmd := fmt.Sprintf("no peer %s", peerAddr)
+	if iface != "" {
+		peerCmd += fmt.Sprintf(" interface %s", iface)
+	}
 	commands := []string{
 		"bfd",
-		fmt.Sprintf("no peer %s", peerAddr),
+		peerCmd,
 		"exit",
 	}
 

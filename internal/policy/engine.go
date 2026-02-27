@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/piwi3910/NovaRoute/internal/config"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +31,7 @@ type Engine struct {
 // NewEngine creates a new policy engine with the given configuration.
 func NewEngine(cfg Config, logger *zap.Logger) *Engine {
 	if cfg.Owners == nil {
-		cfg.Owners = make(map[string]OwnerConfig)
+		cfg.Owners = make(map[string]config.OwnerConfig)
 	}
 	return &Engine{
 		cfg:    cfg,

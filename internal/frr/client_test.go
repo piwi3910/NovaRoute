@@ -338,7 +338,7 @@ func TestRemoveBFDPeer(t *testing.T) {
 	client, dir := setupFakeVtysh(t)
 	ctx := context.Background()
 
-	err := client.RemoveBFDPeer(ctx, "192.168.1.1")
+	err := client.RemoveBFDPeer(ctx, "192.168.1.1", "")
 	if err != nil {
 		t.Fatalf("RemoveBFDPeer error: %v", err)
 	}

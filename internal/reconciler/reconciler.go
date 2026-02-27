@@ -133,7 +133,6 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	duration := time.Since(start).Seconds()
 
 	if len(errs) > 0 {
-		metrics.RecordFRRTransaction("failure", duration)
 		metrics.RecordReconcileCycleDuration(duration)
 		r.logger.Error("reconciliation completed with errors",
 			zap.Int("error_count", len(errs)),
@@ -142,7 +141,6 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("reconciliation had %d errors; first: %w", len(errs), errs[0])
 	}
 
-	metrics.RecordFRRTransaction("success", duration)
 	metrics.RecordReconcileCycleDuration(duration)
 	r.logger.Debug("reconciliation cycle complete",
 		zap.Duration("duration", time.Since(start)),
@@ -284,7 +282,7 @@ func (r *Reconciler) ReconcileBFD(ctx context.Context, desired []*intent.BFDInte
 	// Remove BFD sessions that are applied but no longer desired.
 	for key, ab := range r.appliedBFD {
 		if _, stillDesired := desiredMap[key]; !stillDesired {
-			if err := r.removeBFDFromFRR(ctx, ab.PeerAddress); err != nil {
+			if err := r.removeBFDFromFRR(ctx, ab.PeerAddress, ab.InterfaceName); err != nil {
 				errs = append(errs, fmt.Errorf("remove BFD %s: %w", ab.PeerAddress, err))
 				continue
 			}
@@ -451,11 +449,11 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 
 	case "bfd":
 		mapKey := bfdKey(key)
-		_, ok := r.appliedBFD[mapKey]
+		ab, ok := r.appliedBFD[mapKey]
 		if !ok {
 			return fmt.Errorf("RemoveIntent: BFD %q not found in applied state", key)
 		}
-		if err := r.removeBFDFromFRR(ctx, key); err != nil {
+		if err := r.removeBFDFromFRR(ctx, key, ab.InterfaceName); err != nil {
 			return err
 		}
 		delete(r.appliedBFD, mapKey)
@@ -605,6 +603,19 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 			}
 			r.lastBGPStates[nbr.Address] = nbr.State
 		}
+		// Detect peers that disappeared from FRR.
+		currentBGP := make(map[string]bool, len(bgpNeighbors))
+		for _, nbr := range bgpNeighbors {
+			currentBGP[nbr.Address] = true
+		}
+		for addr, prevState := range r.lastBGPStates {
+			if !currentBGP[addr] {
+				if prevState == "Established" {
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_PEER_DOWN), r.findPeerOwner(addr), fmt.Sprintf("BGP peer %s disappeared from FRR (was %s)", addr, prevState), map[string]string{"peer": addr, "state": "gone", "previous_state": prevState})
+				}
+				delete(r.lastBGPStates, addr)
+			}
+		}
 	}
 
 	// Check BFD peers.
@@ -621,8 +632,23 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 				} else {
 					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_BFD_DOWN), r.findBFDOwner(peer.PeerAddress), fmt.Sprintf("BFD peer %s is now %s (was %s)", peer.PeerAddress, peer.Status, prev), map[string]string{"peer": peer.PeerAddress, "status": peer.Status, "previous_status": prev})
 				}
+			} else if !existed && peer.Status == "up" {
+				r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_BFD_UP), r.findBFDOwner(peer.PeerAddress), fmt.Sprintf("BFD peer %s is up", peer.PeerAddress), map[string]string{"peer": peer.PeerAddress, "status": peer.Status})
 			}
 			r.lastBFDStates[peer.PeerAddress] = peer.Status
+		}
+		// Detect BFD peers that disappeared from FRR.
+		currentBFD := make(map[string]bool, len(bfdPeers))
+		for _, peer := range bfdPeers {
+			currentBFD[peer.PeerAddress] = true
+		}
+		for addr, prevStatus := range r.lastBFDStates {
+			if !currentBFD[addr] {
+				if prevStatus == "up" {
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_BFD_DOWN), r.findBFDOwner(addr), fmt.Sprintf("BFD peer %s disappeared from FRR (was %s)", addr, prevStatus), map[string]string{"peer": addr, "status": "gone", "previous_status": prevStatus})
+				}
+				delete(r.lastBFDStates, addr)
+			}
 		}
 	}
 
@@ -640,8 +666,23 @@ func (r *Reconciler) monitorFRRState(ctx context.Context) {
 				} else if prev == "Full" {
 					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is now %s (was %s)", nbr.NeighborID, nbr.State, prev), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State, "previous_state": prev})
 				}
+			} else if !existed && nbr.State == "Full" {
+				r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_UP), r.findOSPFOwnerByNeighbor(nbr.Interface), fmt.Sprintf("OSPF neighbor %s is Full", nbr.NeighborID), map[string]string{"neighbor_id": nbr.NeighborID, "state": nbr.State})
 			}
 			r.lastOSPFStates[nbr.NeighborID] = nbr.State
+		}
+		// Detect OSPF neighbors that disappeared from FRR.
+		currentOSPF := make(map[string]bool, len(ospfNeighbors))
+		for _, nbr := range ospfNeighbors {
+			currentOSPF[nbr.NeighborID] = true
+		}
+		for nbrID, prevState := range r.lastOSPFStates {
+			if !currentOSPF[nbrID] {
+				if prevState == "Full" {
+					r.eventPublisher.PublishRouteEvent(uint32(v1.EventType_EVENT_TYPE_OSPF_NEIGHBOR_DOWN), r.findOSPFOwnerByNeighbor(nbrID), fmt.Sprintf("OSPF neighbor %s disappeared from FRR (was %s)", nbrID, prevState), map[string]string{"neighbor_id": nbrID, "state": "gone", "previous_state": prevState})
+				}
+				delete(r.lastOSPFStates, nbrID)
+			}
 		}
 	}
 }
@@ -682,6 +723,17 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 				errs = append(errs, fmt.Errorf("withdraw prefix %s: %w", p.Prefix, err))
 			} else {
 				r.logger.Info("WithdrawAll: withdrew prefix", zap.String("prefix", p.Prefix))
+				// Clean up route-map if this prefix had attributes.
+				hasAttrs := p.LocalPreference > 0 || len(p.Communities) > 0 || p.MED > 0 || p.NextHop != ""
+				if hasAttrs {
+					rmName := "NR-PFX-" + strings.ReplaceAll(strings.ReplaceAll(p.Prefix, "/", "-"), ":", "-")
+					if rmErr := r.frrClient.RemoveRouteMap(ctx, rmName); rmErr != nil {
+						r.logger.Warn("WithdrawAll: failed to remove route-map",
+							zap.String("route_map", rmName),
+							zap.Error(rmErr),
+						)
+					}
+				}
 				delete(r.appliedPrefixes, key)
 			}
 		} else {
@@ -692,7 +744,7 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 
 	// 2. Remove all applied BFD sessions.
 	for key, b := range r.appliedBFD {
-		if err := r.frrClient.RemoveBFDPeer(ctx, b.PeerAddress); err != nil {
+		if err := r.frrClient.RemoveBFDPeer(ctx, b.PeerAddress, b.InterfaceName); err != nil {
 			r.logger.Error("WithdrawAll: failed to remove BFD peer",
 				zap.String("peer", b.PeerAddress),
 				zap.Error(err),
@@ -824,6 +876,8 @@ func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
 		)
 		r.appliedPeers = make(map[string]*intent.PeerIntent)
 		r.appliedPrefixes = make(map[string]*intent.PrefixIntent)
+		r.lastBGPStates = make(map[string]string)
+		r.lastBFDStates = make(map[string]string)
 	}
 
 	r.bgpConfigured = true
@@ -870,7 +924,7 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 		metrics.RecordFRRTransaction("success", afiDuration)
 	}
 
-	// Apply prefix-list filtering and maximum-prefix safety for each address family.
+	// Apply maximum-prefix safety for each address family.
 	for _, af := range p.AddressFamilies {
 		afiName := resolveAddressFamily(af)
 		if afiName == "" {
@@ -882,9 +936,24 @@ func (r *Reconciler) applyPeerIntent(ctx context.Context, p *intent.PeerIntent) 
 		if maxPfx == 0 {
 			maxPfx = 1000 // Default safety limit.
 		}
-		if err := r.frrClient.SetNeighborMaxPrefix(ctx, p.NeighborAddress, maxPfx, true, afiName); err != nil {
-			return fmt.Errorf("set max-prefix for neighbor %s (afi=%s): %w", p.NeighborAddress, afiName, err)
+		mpStart := time.Now()
+		if mpErr := r.frrClient.SetNeighborMaxPrefix(ctx, p.NeighborAddress, maxPfx, true, afiName); mpErr != nil {
+			metrics.RecordFRRTransaction("failure", time.Since(mpStart).Seconds())
+			return fmt.Errorf("set max-prefix for neighbor %s (afi=%s): %w", p.NeighborAddress, afiName, mpErr)
 		}
+		metrics.RecordFRRTransaction("success", time.Since(mpStart).Seconds())
+	}
+
+	// Link BFD session to BGP peer if BFD is enabled.
+	if p.BFDEnabled {
+		bfdStart := time.Now()
+		bfdErr := r.frrClient.SetNeighborBFD(ctx, p.NeighborAddress, true)
+		bfdDuration := time.Since(bfdStart).Seconds()
+		if bfdErr != nil {
+			metrics.RecordFRRTransaction("failure", bfdDuration)
+			return fmt.Errorf("enable BFD for neighbor %s: %w", p.NeighborAddress, bfdErr)
+		}
+		metrics.RecordFRRTransaction("success", bfdDuration)
 	}
 
 	r.logger.Info("applied peer intent",
@@ -1003,6 +1072,23 @@ func (r *Reconciler) removePrefixFromFRR(ctx context.Context, p *intent.PrefixIn
 		}
 		metrics.RecordFRRTransaction("success", duration)
 
+		// Clean up route-map if this prefix had BGP attributes.
+		hasAttributes := p.LocalPreference > 0 || len(p.Communities) > 0 || p.MED > 0 || p.NextHop != ""
+		if hasAttributes {
+			rmName := "NR-PFX-" + strings.ReplaceAll(strings.ReplaceAll(p.Prefix, "/", "-"), ":", "-")
+			rmStart := time.Now()
+			if rmErr := r.frrClient.RemoveRouteMap(ctx, rmName); rmErr != nil {
+				metrics.RecordFRRTransaction("failure", time.Since(rmStart).Seconds())
+				r.logger.Warn("failed to remove route-map for prefix",
+					zap.String("prefix", p.Prefix),
+					zap.String("route_map", rmName),
+					zap.Error(rmErr),
+				)
+			} else {
+				metrics.RecordFRRTransaction("success", time.Since(rmStart).Seconds())
+			}
+		}
+
 		r.logger.Info("removed BGP prefix from FRR",
 			zap.String("prefix", p.Prefix),
 			zap.String("owner", p.Owner),
@@ -1042,9 +1128,9 @@ func (r *Reconciler) applyBFDIntent(ctx context.Context, b *intent.BFDIntent) er
 }
 
 // removeBFDFromFRR removes a BFD session from FRR.
-func (r *Reconciler) removeBFDFromFRR(ctx context.Context, peerAddr string) error {
+func (r *Reconciler) removeBFDFromFRR(ctx context.Context, peerAddr string, iface string) error {
 	start := time.Now()
-	err := r.frrClient.RemoveBFDPeer(ctx, peerAddr)
+	err := r.frrClient.RemoveBFDPeer(ctx, peerAddr, iface)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
@@ -1147,7 +1233,8 @@ func resolveAddressFamily(af v1.AddressFamily) string {
 	}
 }
 
-// protocolString converts a v1.Protocol enum to a lowercase string.
+// protocolString converts a protocol enum to a lowercase string key.
+// NOTE: This helper is duplicated across intent, reconciler, and server packages.
 func protocolString(p v1.Protocol) string {
 	switch p {
 	case v1.Protocol_PROTOCOL_BGP:
@@ -1203,6 +1290,9 @@ func peerEqual(a, b *intent.PeerIntent) bool {
 		return false
 	}
 	if a.MaxPrefixes != b.MaxPrefixes {
+		return false
+	}
+	if a.Description != b.Description {
 		return false
 	}
 	if len(a.AddressFamilies) != len(b.AddressFamilies) {

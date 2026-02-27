@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -83,6 +84,7 @@ func main() {
 	// Connect FRR client in a background goroutine with retry loop.
 	// The VTY client connects to FRR daemon sockets in the socket directory.
 	var frrClient *frr.Client
+	var frrMu sync.Mutex
 	frrReady := make(chan struct{})
 
 	go func() {
@@ -132,7 +134,9 @@ func main() {
 				}
 			}
 
+			frrMu.Lock()
 			frrClient = client
+			frrMu.Unlock()
 			logger.Info("FRR VTY connection established",
 				zap.String("version", version),
 			)
@@ -177,8 +181,10 @@ func main() {
 	go func() {
 		select {
 		case <-frrReady:
+			frrMu.Lock()
 			rec.SetFRRClient(frrClient)
 			srv.SetFRRClient(frrClient)
+			frrMu.Unlock()
 			logger.Info("FRR client injected into reconciler and server")
 
 			// Publish FRR connected event.
@@ -244,7 +250,10 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	metricsMux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		if frrClient != nil && frrClient.IsReady() {
+		frrMu.Lock()
+		client := frrClient
+		frrMu.Unlock()
+		if client != nil && client.IsReady() {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ready"))
 		} else {
@@ -280,6 +289,19 @@ func main() {
 
 	// Graceful shutdown.
 	logger.Info("shutting down gracefully")
+
+	// Publish FRR disconnected event before shutdown.
+	frrMu.Lock()
+	if frrClient != nil {
+		srv.EventBus().Publish(&v1.RouteEvent{
+			Type:          v1.EventType_EVENT_TYPE_FRR_DISCONNECTED,
+			Detail:        "FRR VTY connection closing (agent shutdown)",
+			TimestampUnix: time.Now().Unix(),
+		})
+		metrics.RecordEvent("frr_disconnected")
+	}
+	frrMu.Unlock()
+
 	cancel()
 
 	// Wait for reconciler loop to exit before withdrawing state.
@@ -312,12 +334,14 @@ func main() {
 	logger.Info("metrics server stopped")
 
 	// Close FRR client.
+	frrMu.Lock()
 	if frrClient != nil {
 		if closeErr := frrClient.Close(); closeErr != nil {
 			logger.Warn("FRR client close error", zap.Error(closeErr))
 		}
 		logger.Info("FRR client closed")
 	}
+	frrMu.Unlock()
 
 	// Clean up socket.
 	_ = os.Remove(socketPath)
@@ -357,17 +381,7 @@ func buildLogger(level string) (*zap.Logger, error) {
 
 // convertPolicyConfig converts the config.Owners map to a policy.Config.
 func convertPolicyConfig(cfg *config.Config) policy.Config {
-	owners := make(map[string]policy.OwnerConfig, len(cfg.Owners))
-	for name, oc := range cfg.Owners {
-		owners[name] = policy.OwnerConfig{
-			Token: oc.Token,
-			AllowedPrefixes: policy.PrefixPolicy{
-				Type:         oc.AllowedPrefixes.Type,
-				AllowedCIDRs: oc.AllowedPrefixes.AllowedCIDRs,
-			},
-		}
-	}
-	return policy.Config{Owners: owners}
+	return policy.Config{Owners: cfg.Owners}
 }
 
 // removeStaleSocket removes a Unix socket file if it exists and is a socket.
