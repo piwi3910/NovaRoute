@@ -4,7 +4,9 @@ title: Home
 nav_order: 1
 ---
 
-# NovaRoute
+<p align="center">
+  <img src="{{ '/assets/novaroute-logo-dark.svg' | relative_url }}" alt="NovaRoute" width="480">
+</p>
 
 **Node-local, policy-safe routing control plane for Kubernetes.**
 

@@ -5,6 +5,8 @@ url: https://piwi3910.github.io/NovaRoute
 
 color_scheme: dark
 
+logo: "/assets/novaroute-logo-dark.svg"
+
 permalink: pretty
 
 exclude:
