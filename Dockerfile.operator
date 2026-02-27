@@ -1,0 +1,27 @@
+# Stage 1: Build the operator binary
+FROM golang:1.26-alpine AS builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+
+# Copy dependency files first for layer caching.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the full source tree.
+COPY . .
+
+# Build the operator binary with static linking.
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/novaroute-operator ./cmd/novaroute-operator/
+
+# Stage 2: Minimal distroless runtime image
+FROM gcr.io/distroless/static:nonroot
+
+WORKDIR /
+
+COPY --from=builder /out/novaroute-operator .
+
+USER 65532:65532
+
+ENTRYPOINT ["/novaroute-operator"]

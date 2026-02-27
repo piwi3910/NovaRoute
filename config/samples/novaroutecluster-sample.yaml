@@ -1,0 +1,36 @@
+apiVersion: novaroute.io/v1alpha1
+kind: NovaRouteCluster
+metadata:
+  name: novaroute
+  namespace: nova-system
+spec:
+  version: "v0.1.0"
+  agent:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    logLevel: info
+    owners:
+      - name: novaedge
+        token: novaedge-test-token-2024
+        prefixType: host_only
+        allowedCIDRs: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      - name: novanet
+        token: novanet-test-token-2024
+        prefixType: subnet
+        allowedCIDRs: ["10.244.0.0/16"]
+      - name: admin
+        token: admin-test-token-2024
+        prefixType: any
+  frr:
+    daemons:
+      bgpd: true
+      ospfd: true
+      bfdd: true
+  updateStrategy:
+    type: RollingUpdate
+    maxUnavailable: 1
