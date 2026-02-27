@@ -112,27 +112,47 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Extract agent metadata
+        id: agent-meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_PREFIX }}/novaroute-agent
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest
 
-      - name: Build and push
+      - name: Build and push agent
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.agent-meta.outputs.tags }}
+          labels: ${{ steps.agent-meta.outputs.labels }}
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract FRR metadata
+        id: frr-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/novaroute-frr
+          tags: |
+            type=raw,value=10.5.1
+
+      - name: Build and push FRR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frr
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.frr-meta.outputs.tags }}
+          labels: ${{ steps.frr-meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
