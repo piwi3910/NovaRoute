@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -493,9 +494,10 @@ func newConfigureBGPCmd() *cobra.Command {
 
 // newApplyPeerCmd creates the "apply-peer" subcommand.
 func newApplyPeerCmd() *cobra.Command {
-	var owner, token, neighbor, password, sourceAddr string
+	var owner, token, neighbor, password, sourceAddr, description, peerType string
 	var remoteAS, keepalive, holdTime, ebgpMultihop, maxPrefix uint32
 	var bfdEnabled bool
+	var addressFamilies []string
 
 	cmd := &cobra.Command{
 		Use:   "apply-peer",
@@ -510,10 +512,28 @@ func newApplyPeerCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
+			var pt v1.PeerType
+			switch strings.ToLower(peerType) {
+			case "internal", "ibgp":
+				pt = v1.PeerType_PEER_TYPE_INTERNAL
+			default:
+				pt = v1.PeerType_PEER_TYPE_EXTERNAL
+			}
+
+			var afs []v1.AddressFamily
+			for _, af := range addressFamilies {
+				switch strings.ToLower(af) {
+				case "ipv6-unicast", "ipv6":
+					afs = append(afs, v1.AddressFamily_ADDRESS_FAMILY_IPV6_UNICAST)
+				default:
+					afs = append(afs, v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST)
+				}
+			}
+
 			peer := &v1.BGPPeer{
 				NeighborAddress: neighbor,
 				RemoteAs:        remoteAS,
-				PeerType:        v1.PeerType_PEER_TYPE_EXTERNAL,
+				PeerType:        pt,
 				Keepalive:       keepalive,
 				HoldTime:        holdTime,
 				BfdEnabled:      bfdEnabled,
@@ -521,7 +541,8 @@ func newApplyPeerCmd() *cobra.Command {
 				Password:        password,
 				SourceAddress:   sourceAddr,
 				MaxPrefix:       maxPrefix,
-				AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},
+				AddressFamilies: afs,
+				Description:     description,
 			}
 
 			_, err = client.ApplyPeer(ctx, &v1.ApplyPeerRequest{
@@ -549,6 +570,9 @@ func newApplyPeerCmd() *cobra.Command {
 	cmd.Flags().StringVar(&password, "password", "", "BGP session password")
 	cmd.Flags().StringVar(&sourceAddr, "source-address", "", "update source address")
 	cmd.Flags().Uint32Var(&maxPrefix, "max-prefix", 0, "maximum prefix limit (0 = default 1000)")
+	cmd.Flags().StringVar(&peerType, "peer-type", "external", "peer type (external, internal, ibgp)")
+	cmd.Flags().StringSliceVar(&addressFamilies, "address-families", []string{"ipv4-unicast"}, "address families (ipv4-unicast, ipv6-unicast)")
+	cmd.Flags().StringVar(&description, "description", "", "peer description")
 	_ = cmd.MarkFlagRequired("owner")
 	_ = cmd.MarkFlagRequired("token")
 	_ = cmd.MarkFlagRequired("neighbor")

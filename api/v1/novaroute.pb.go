@@ -185,6 +185,7 @@ const (
 	EventType_EVENT_TYPE_OWNER_REGISTERED   EventType = 11
 	EventType_EVENT_TYPE_OWNER_DEREGISTERED EventType = 12
 	EventType_EVENT_TYPE_POLICY_VIOLATION   EventType = 13
+	EventType_EVENT_TYPE_BGP_CONFIG_CHANGED EventType = 14
 )
 
 // Enum value maps for EventType.
@@ -204,6 +205,7 @@ var (
 		11: "EVENT_TYPE_OWNER_REGISTERED",
 		12: "EVENT_TYPE_OWNER_DEREGISTERED",
 		13: "EVENT_TYPE_POLICY_VIOLATION",
+		14: "EVENT_TYPE_BGP_CONFIG_CHANGED",
 	}
 	EventType_value = map[string]int32{
 		"EVENT_TYPE_UNSPECIFIED":        0,
@@ -220,6 +222,7 @@ var (
 		"EVENT_TYPE_OWNER_REGISTERED":   11,
 		"EVENT_TYPE_OWNER_DEREGISTERED": 12,
 		"EVENT_TYPE_POLICY_VIOLATION":   13,
+		"EVENT_TYPE_BGP_CONFIG_CHANGED": 14,
 	}
 )
 
@@ -2494,7 +2497,7 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\bProtocol\x12\x18\n" +
 	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fPROTOCOL_BGP\x10\x01\x12\x11\n" +
-	"\rPROTOCOL_OSPF\x10\x02*\xb4\x03\n" +
+	"\rPROTOCOL_OSPF\x10\x02*\xd7\x03\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12EVENT_TYPE_PEER_UP\x10\x01\x12\x18\n" +
@@ -2510,7 +2513,8 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x12\x1f\n" +
 	"\x1bEVENT_TYPE_OWNER_REGISTERED\x10\v\x12!\n" +
 	"\x1dEVENT_TYPE_OWNER_DEREGISTERED\x10\f\x12\x1f\n" +
-	"\x1bEVENT_TYPE_POLICY_VIOLATION\x10\r2\xbe\b\n" +
+	"\x1bEVENT_TYPE_POLICY_VIOLATION\x10\r\x12!\n" +
+	"\x1dEVENT_TYPE_BGP_CONFIG_CHANGED\x10\x0e2\xbe\b\n" +
 	"\fRouteControl\x12I\n" +
 	"\bRegister\x12\x1d.novaroute.v1.RegisterRequest\x1a\x1e.novaroute.v1.RegisterResponse\x12O\n" +
 	"\n" +

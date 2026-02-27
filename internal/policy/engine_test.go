@@ -3,6 +3,7 @@ package policy
 import (
 	"testing"
 
+	"github.com/piwi3910/NovaRoute/internal/config"
 	"go.uber.org/zap"
 )
 
@@ -14,35 +15,35 @@ func testLogger() *zap.Logger {
 // testConfig returns a standard test configuration with multiple owners.
 func testConfig() Config {
 	return Config{
-		Owners: map[string]OwnerConfig{
+		Owners: map[string]config.OwnerConfig{
 			"tenant-a": {
 				Token: "token-aaa",
-				AllowedPrefixes: PrefixPolicy{
+				AllowedPrefixes: config.PrefixPolicy{
 					Type: PrefixTypeHostOnly,
 				},
 			},
 			"tenant-b": {
 				Token: "token-bbb",
-				AllowedPrefixes: PrefixPolicy{
+				AllowedPrefixes: config.PrefixPolicy{
 					Type: PrefixTypeSubnet,
 				},
 			},
 			"tenant-c": {
 				Token: "token-ccc",
-				AllowedPrefixes: PrefixPolicy{
+				AllowedPrefixes: config.PrefixPolicy{
 					Type: PrefixTypeAny,
 				},
 			},
 			"tenant-cidr": {
 				Token: "token-cidr",
-				AllowedPrefixes: PrefixPolicy{
+				AllowedPrefixes: config.PrefixPolicy{
 					Type:         PrefixTypeAny,
 					AllowedCIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"},
 				},
 			},
 			"admin": {
 				Token: "admin-token",
-				AllowedPrefixes: PrefixPolicy{
+				AllowedPrefixes: config.PrefixPolicy{
 					Type: PrefixTypeAny,
 				},
 			},
@@ -385,10 +386,10 @@ func TestNewEngine_NilOwners(t *testing.T) {
 
 func TestValidatePrefix_UnknownPolicyType(t *testing.T) {
 	cfg := Config{
-		Owners: map[string]OwnerConfig{
+		Owners: map[string]config.OwnerConfig{
 			"bad": {
 				Token: "t",
-				AllowedPrefixes: PrefixPolicy{
+				AllowedPrefixes: config.PrefixPolicy{
 					Type: "invalid_type",
 				},
 			},

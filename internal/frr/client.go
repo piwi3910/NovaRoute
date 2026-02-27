@@ -52,7 +52,10 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// IsReady checks whether the required FRR daemon sockets exist.
+// IsReady checks whether the required core FRR daemon sockets exist.
+// Only zebra and bgpd are checked because they are mandatory for all
+// configurations. OSPF (ospfd) and BFD (bfdd) sockets are optional
+// and checked implicitly when their operations are invoked.
 func (c *Client) IsReady() bool {
 	for _, daemon := range []string{"zebra", "bgpd"} {
 		sock := filepath.Join(c.socketDir, daemon+".vty")
