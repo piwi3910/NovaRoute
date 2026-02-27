@@ -132,7 +132,7 @@ func parseBFDPeersJSON(data string) ([]BFDPeerState, error) {
 		Peer      string `json:"peer"`
 		Interface string `json:"interface"`
 		Status    string `json:"status"`
-		Uptime    string `json:"uptime"`
+		Uptime    uint64 `json:"uptime"`
 	}
 
 	var peers []bfdPeerJSON
@@ -146,11 +146,18 @@ func parseBFDPeersJSON(data string) ([]BFDPeerState, error) {
 
 	result := make([]BFDPeerState, len(peers))
 	for i, p := range peers {
+		uptime := ""
+		if p.Uptime > 0 {
+			h := p.Uptime / 3600
+			m := (p.Uptime % 3600) / 60
+			s := p.Uptime % 60
+			uptime = fmt.Sprintf("%dh%dm%ds", h, m, s)
+		}
 		result[i] = BFDPeerState{
 			PeerAddress: p.Peer,
 			Interface:   p.Interface,
 			Status:      p.Status,
-			Uptime:      p.Uptime,
+			Uptime:      uptime,
 		}
 	}
 
