@@ -1,0 +1,19 @@
+apiVersion: v2
+name: novaroute-operator
+description: A Helm chart for deploying the NovaRoute Operator - manages NovaRoute clusters on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - novaroute
+  - operator
+  - routing
+  - bgp
+  - frr
+  - kubernetes
+home: https://github.com/piwi3910/NovaRoute
+sources:
+  - https://github.com/piwi3910/NovaRoute
+maintainers:
+  - name: piwi3910
+    url: https://github.com/piwi3910

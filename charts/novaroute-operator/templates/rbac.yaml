@@ -1,0 +1,114 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+rules:
+  # NovaRouteCluster management
+  - apiGroups:
+      - novaroute.io
+    resources:
+      - novarouteclusters
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - novaroute.io
+    resources:
+      - novarouteclusters/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - novaroute.io
+    resources:
+      - novarouteclusters/finalizers
+    verbs:
+      - update
+  # DaemonSets
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Core resources
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - serviceaccounts
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # RBAC resources (for creating RBAC for managed agent)
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterroles
+      - clusterrolebindings
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Leader election
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Events
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "novaroute-operator.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "novaroute-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
