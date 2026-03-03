@@ -1,0 +1,68 @@
+{{- if .Values.tests.integration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-integration-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "novaroute-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: test
+    spec:
+      serviceAccountName: {{ include "novaroute-operator.fullname" . }}-test
+      restartPolicy: Never
+      containers:
+        - name: integration-test
+          image: {{ .Values.tests.image | default "bitnami/kubectl:latest" }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              echo "=== NovaRoute Operator Integration Test ==="
+
+              echo "1. Verifying operator health endpoint..."
+              POD_NAME=$(kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "novaroute-operator.name" . }} -o jsonpath='{.items[0].metadata.name}')
+              READY=$(kubectl get pod $POD_NAME -n {{ .Release.Namespace }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+              if [ "$READY" != "True" ]; then
+                echo "FAIL: Operator pod not ready"
+                kubectl describe pod $POD_NAME -n {{ .Release.Namespace }} | tail -20
+                exit 1
+              fi
+              echo "   Operator pod is healthy and ready"
+
+              echo "2. Checking RBAC permissions..."
+              SA_NAME={{ include "novaroute-operator.serviceAccountName" . }}
+              if kubectl get clusterrolebinding -l app.kubernetes.io/name={{ include "novaroute-operator.name" . }} --no-headers | grep -q .; then
+                echo "   ClusterRoleBinding exists"
+              else
+                echo "FAIL: ClusterRoleBinding not found"
+                exit 1
+              fi
+
+              echo "3. Verifying leader election..."
+              LEADER_ELECTION=$(kubectl get lease -n {{ .Release.Namespace }} --no-headers 2>/dev/null | grep novaroute || echo "none")
+              if [ "$LEADER_ELECTION" != "none" ]; then
+                echo "   Leader election lease found"
+              else
+                echo "   No leader election lease (may be single replica)"
+              fi
+
+              {{- if .Values.metrics.enabled }}
+              echo "4. Checking metrics port..."
+              CONTAINER_PORTS=$(kubectl get pod $POD_NAME -n {{ .Release.Namespace }} -o jsonpath='{.spec.containers[0].ports[*].containerPort}')
+              echo "   Container ports: $CONTAINER_PORTS"
+              {{- end }}
+
+              echo ""
+              echo "=== Integration Test PASSED ==="
+{{- end }}

@@ -13,11 +13,12 @@ concurrency:
 permissions:
   contents: read
   checks: write
+  packages: write
 
 jobs:
   lint:
     name: Lint Code
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-novaroute
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -50,10 +51,13 @@ jobs:
 
   test:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-novaroute
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -62,7 +66,7 @@ jobs:
           cache: true
 
       - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Display coverage
         run: |
@@ -79,7 +83,7 @@ jobs:
 
   build:
     name: Build Binaries
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-novaroute
     strategy:
       matrix:
         binary:
@@ -111,7 +115,7 @@ jobs:
 
   docker-build:
     name: Docker Build Test
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-novaroute
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -131,7 +135,7 @@ jobs:
 
   security:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-novaroute
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -147,9 +151,35 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
+  build-and-push:
+    name: Build and Push Images
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [lint, test, build, docker-build, security]
+    runs-on: arc-runner-novaroute
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push novaroute-agent
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/piwi3910/novaroute-agent:sha-${{ github.sha }}
+            ghcr.io/piwi3910/novaroute-agent:latest
+
   status-check:
     name: Status Check
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-novaroute
     needs: [lint, test, build, docker-build, security]
     if: always()
     steps:
