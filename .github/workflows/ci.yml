@@ -377,15 +377,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push novaroute-agent
+      - name: Build and push novaroute-operator
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/piwi3910/novaroute-agent:sha-${{ github.sha }}
-            ghcr.io/piwi3910/novaroute-agent:latest
+            ghcr.io/piwi3910/novaroute/novaroute-operator:sha-${{ github.sha }}
+            ghcr.io/piwi3910/novaroute/novaroute-operator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
