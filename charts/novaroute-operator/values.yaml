@@ -141,3 +141,11 @@ crds:
 rbac:
   # -- Create RBAC resources
   create: true
+
+# -- PostSync test hooks for ArgoCD CT (Continuous Testing)
+tests:
+  image: bitnami/kubectl:latest
+  smoke:
+    enabled: true
+  integration:
+    enabled: true

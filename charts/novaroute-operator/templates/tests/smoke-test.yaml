@@ -1,0 +1,105 @@
+{{- if .Values.tests.smoke.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-test
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-test
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "novaroute-operator.fullname" . }}-test
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "novaroute-operator.fullname" . }}-test
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-smoke-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "novaroute-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: test
+    spec:
+      serviceAccountName: {{ include "novaroute-operator.fullname" . }}-test
+      restartPolicy: Never
+      containers:
+        - name: smoke-test
+          image: {{ .Values.tests.image | default "bitnami/kubectl:latest" }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              echo "=== NovaRoute Operator Smoke Test ==="
+
+              echo "1. Checking Deployment status..."
+              kubectl rollout status deployment/{{ include "novaroute-operator.fullname" . }} -n {{ .Release.Namespace }} --timeout=120s
+              echo "   Deployment is ready"
+
+              echo "2. Verifying operator pod is running..."
+              PODS=$(kubectl get pods -n {{ .Release.Namespace }} -l {{ include "novaroute-operator.selectorLabels" . | replace ": " "=" | replace "\n" "," }} --field-selector=status.phase=Running --no-headers | wc -l)
+              if [ "$PODS" -lt 1 ]; then
+                echo "FAIL: No operator pods running"
+                kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "novaroute-operator.name" . }}
+                exit 1
+              fi
+              echo "   $PODS operator pod(s) running"
+
+              echo "3. Checking CRDs are installed..."
+              if kubectl get crd novarouteclusters.novaroute.io &>/dev/null; then
+                echo "   NovaRouteCluster CRD installed"
+              else
+                echo "FAIL: NovaRouteCluster CRD not found"
+                exit 1
+              fi
+
+              echo ""
+              echo "=== Smoke Test PASSED ==="
+{{- end }}
