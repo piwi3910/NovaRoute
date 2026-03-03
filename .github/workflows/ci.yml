@@ -14,7 +14,6 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
-  security-events: write
   packages: write
 
 env:
@@ -30,6 +29,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -145,7 +146,7 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...
 
       - name: Run gitleaks
@@ -154,7 +155,7 @@ jobs:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -163,17 +164,21 @@ jobs:
   phase2-gate:
     name: "Phase 2: Gate"
     runs-on: arc-runner-novaroute
-    needs: [phase2-docs, phase2-docs-freshness, phase2-security]
+    needs: [phase1-gate, phase2-docs, phase2-docs-freshness, phase2-security]
     if: always()
     steps:
       - name: Check phase 2 results
         env:
+          PHASE1_GATE: ${{ needs.phase1-gate.result }}
           DOCS: ${{ needs.phase2-docs.result }}
           DOCS_FRESHNESS: ${{ needs.phase2-docs-freshness.result }}
           SECURITY: ${{ needs.phase2-security.result }}
         run: |
-          results=("$DOCS" "$DOCS_FRESHNESS" "$SECURITY")
-          for r in "${results[@]}"; do
+          if [[ "$PHASE1_GATE" != "success" ]]; then
+            echo "::error::Phase 1 gate did not pass (status: $PHASE1_GATE)"
+            exit 1
+          fi
+          for r in "$DOCS" "$DOCS_FRESHNESS" "$SECURITY"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
               echo "::error::Phase 2 failed (status: $r)"
               exit 1
@@ -202,14 +207,14 @@ jobs:
           cache: true
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+        run: go install gotest.tools/gotestsum@v1.12.1
 
       - name: Run unit tests
         run: |
           CGO_ENABLED=1 gotestsum \
             --junitfile test-results.xml \
             --format pkgname \
-            -- -race -coverprofile=coverage.out -covermode=atomic ./...
+            -- -race -coverprofile=coverage.out -covermode=atomic -timeout=10m ./...
 
       - name: Check coverage threshold
         run: |
@@ -218,7 +223,7 @@ jobs:
           echo "## Test Coverage: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
 
           THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
-          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+          if awk "BEGIN {exit !($COVERAGE < $THRESHOLD)}"; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
           fi
@@ -244,13 +249,18 @@ jobs:
   phase3-gate:
     name: "Phase 3: Gate"
     runs-on: arc-runner-novaroute
-    needs: [phase3-test-go]
+    needs: [phase2-gate, phase3-test-go]
     if: always()
     steps:
       - name: Check phase 3 results
         env:
+          PHASE2_GATE: ${{ needs.phase2-gate.result }}
           TEST_GO: ${{ needs.phase3-test-go.result }}
         run: |
+          if [[ "$PHASE2_GATE" != "success" ]]; then
+            echo "::error::Phase 2 gate did not pass (status: $PHASE2_GATE)"
+            exit 1
+          fi
           if [[ "$TEST_GO" == "failure" || "$TEST_GO" == "cancelled" ]]; then
             echo "::error::Phase 3 failed (status: $TEST_GO)"
             exit 1
@@ -316,7 +326,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy container scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: 'novaroute-agent:test'
           severity: 'CRITICAL,HIGH'
@@ -324,16 +334,20 @@ jobs:
   phase4-gate:
     name: "Phase 4: Gate"
     runs-on: arc-runner-novaroute
-    needs: [phase4-build-go, phase4-docker-test]
+    needs: [phase3-gate, phase4-build-go, phase4-docker-test]
     if: always()
     steps:
       - name: Check phase 4 results
         env:
+          PHASE3_GATE: ${{ needs.phase3-gate.result }}
           BUILD_GO: ${{ needs.phase4-build-go.result }}
           DOCKER_TEST: ${{ needs.phase4-docker-test.result }}
         run: |
-          results=("$BUILD_GO" "$DOCKER_TEST")
-          for r in "${results[@]}"; do
+          if [[ "$PHASE3_GATE" != "success" ]]; then
+            echo "::error::Phase 3 gate did not pass (status: $PHASE3_GATE)"
+            exit 1
+          fi
+          for r in "$BUILD_GO" "$DOCKER_TEST"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
               echo "::error::Phase 4 failed (status: $r)"
               exit 1
@@ -374,6 +388,12 @@ jobs:
             ghcr.io/piwi3910/novaroute-agent:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger CT pipeline
+        if: success()
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          event-type: deployment-complete
 
   # =============================================================================
   # Status Check (for branch protection)
