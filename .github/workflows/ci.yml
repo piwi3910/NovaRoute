@@ -107,16 +107,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-
       - name: Build documentation
         run: |
-          cd docs
-          bundle install
-          bundle exec jekyll build
+          sudo apt-get update && sudo apt-get install -y ruby-full build-essential
+          cd docs && sudo gem install bundler && bundle install && bundle exec jekyll build
 
   phase2-docs-freshness:
     name: "Phase 2: Docs Freshness"
@@ -146,6 +140,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
