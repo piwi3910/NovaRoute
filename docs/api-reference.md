@@ -62,9 +62,8 @@ Registers an owner session with the agent. Must be called before any other mutat
 
 | Code | Condition |
 |:-----|:----------|
-| `UNAUTHENTICATED` | Token does not match the configured token for this owner. |
+| `UNAUTHENTICATED` | Token does not match the configured token for this owner, or owner name is not present in the agent configuration. |
 | `ALREADY_EXISTS` | Owner is already registered with an active session. |
-| `NOT_FOUND` | Owner name is not present in the agent configuration. |
 
 **Example:**
 
@@ -101,7 +100,7 @@ Empty message. Success is indicated by a non-error response.
 | Code | Condition |
 |:-----|:----------|
 | `UNAUTHENTICATED` | Invalid token. |
-| `NOT_FOUND` | Owner is not currently registered. |
+| `FAILED_PRECONDITION` | Owner is not currently registered. |
 
 **Example:**
 

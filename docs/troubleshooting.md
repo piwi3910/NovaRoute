@@ -61,7 +61,7 @@ Verify that both the NovaRoute agent container and the FRR sidecar container mou
 **Check that the FRR sidecar is running:**
 
 ```bash
-kubectl get pods -l app=novaroute -o wide
+kubectl get pods -l app=novaroute-agent -o wide
 kubectl describe pod <pod-name>
 ```
 
@@ -121,10 +121,10 @@ Look for messages about OPEN failures, capability mismatches, or TCP connection 
 
 **Check the policy configuration:**
 
-The `allowed_prefix_types` field in the owner policy controls which prefix types are permitted:
+The `allowed_prefixes.type` field in the owner policy controls which prefix types are permitted:
 
 - `host_only` -- only /32 (IPv4) and /128 (IPv6) host routes
-- `subnet` -- any prefix length
+- `subnet` -- any prefix length except host routes (/32 IPv4, /128 IPv6)
 - `any` -- no restriction on prefix type
 
 If the policy is set to `host_only` and you attempt to advertise a /24, the intent is rejected.
@@ -145,13 +145,9 @@ When creating a prefix intent, ensure the `protocol` field is set correctly (`bg
 
 **`invalid_token`:** The owner token in the request does not match the token registered for that owner. Verify the token in your client configuration.
 
-**`peer_operation_denied`:** The owner policy does not allow BGP peer operations. Check `allow_peer_operations` in the policy config.
+**`peer_operation_denied`**, **`bfd_operation_denied`**, **`ospf_operation_denied`:** These violations indicate that the owner's token was not recognized or the owner is not registered. All known (registered) owners can perform all operation types -- there are no per-operation permission flags in the configuration.
 
-**`bfd_operation_denied`:** The owner policy does not allow BFD session operations. Check `allow_bfd_operations` in the policy config.
-
-**`ospf_operation_denied`:** The owner policy does not allow OSPF interface operations. Check `allow_ospf_operations` in the policy config.
-
-**`prefix_denied`:** The prefix is not within the allowed CIDRs or does not match the allowed prefix type. Review `allowed_cidrs` and `allowed_prefix_types`.
+**`prefix_denied`:** The prefix is not within the allowed CIDRs or does not match the allowed prefix type. Review `allowed_cidrs` and `allowed_prefixes.type` in the owner configuration.
 
 **`conflict`:** Another owner already owns the resource being requested. Each BGP peer, prefix, BFD session, or OSPF interface can only be owned by one owner at a time.
 
@@ -163,12 +159,12 @@ When creating a prefix intent, ensure the `protocol` field is set correctly (`bg
 
 **Check event type names:**
 
-Event types must use the exact enum format with the `EVENT_TYPE_` prefix:
+Event types can use either the full enum format with the `EVENT_TYPE_` prefix or the short form:
 
 ```
-EVENT_TYPE_PEER_UP        (correct)
-PEER_UP                   (incorrect)
-peer_up                   (incorrect)
+EVENT_TYPE_PEER_UP        (valid - full enum name)
+PEER_UP                   (valid - short form)
+peer_up                   (invalid - must be uppercase)
 ```
 
 **Check the owner filter:**
@@ -273,7 +269,7 @@ novaroutectl events
 novaroutectl events --owner=my-controller
 
 # Stream events filtered by type
-novaroutectl events --type=EVENT_TYPE_PEER_UP --type=EVENT_TYPE_PEER_DOWN
+novaroutectl events --types=PEER_UP,PEER_DOWN
 ```
 
 ### Direct FRR Debugging
