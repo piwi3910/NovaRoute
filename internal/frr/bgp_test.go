@@ -2,6 +2,8 @@ package frr
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestResolveAFICLI(t *testing.T) {
+func TestResolveAFICLI_BGP(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
@@ -24,9 +26,10 @@ func TestResolveAFICLI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-		result := resolveAFICLI(tt.input)
+			result := resolveAFICLI(tt.input)
 		assert.Equal(t, tt.expected, result)
-	})
+		})
+	}
 }
 
 func TestErrBGPNotConfigured(t *testing.T) {
