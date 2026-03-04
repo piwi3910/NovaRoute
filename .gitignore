@@ -1,6 +1,7 @@
 # Binaries
 bin/
 /novaroute-agent
+/novaroute-test
 /novaroutectl
 *.exe
 
