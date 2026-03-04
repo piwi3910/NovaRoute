@@ -105,7 +105,7 @@ func (eb *EventBus) Publish(event *pb.RouteEvent) {
 // to receive events from the FRR state monitor.
 func (eb *EventBus) PublishRouteEvent(eventType uint32, owner, detail string, metadata map[string]string) {
 	evt := &pb.RouteEvent{
-		Type:          pb.EventType(eventType),
+		Type:          pb.EventType(eventType), //nolint:gosec // Event type values are small protobuf enum constants (0-14), no overflow risk
 		Owner:         owner,
 		Detail:        detail,
 		TimestampUnix: time.Now().Unix(),

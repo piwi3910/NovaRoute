@@ -939,7 +939,7 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			owner := "owner"
+			var owner string
 			if id%2 == 0 {
 				owner = "owner-a"
 			} else {
@@ -955,7 +955,7 @@ func TestConcurrentAccess(t *testing.T) {
 				case 0:
 					_ = s.SetPeerIntent(owner, &PeerIntent{
 						NeighborAddress: addr,
-						RemoteAS:        uint32(65000 + id),
+						RemoteAS:        uint32(65000 + id), //nolint:gosec // Test value, no overflow risk
 					})
 				case 1:
 					_ = s.RemovePeerIntent(owner, addr)

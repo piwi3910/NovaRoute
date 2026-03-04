@@ -30,7 +30,7 @@ type PeerIntent struct {
 	AddressFamilies     []v1.AddressFamily
 	SourceAddress       string
 	EBGPMultihop        uint32
-	Password            string
+	Password            string //nolint:gosec // BGP neighbor password field, not a credential
 	MaxPrefixes         uint32
 	CreatedAt           time.Time
 	UpdatedAt           time.Time

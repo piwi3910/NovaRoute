@@ -389,7 +389,7 @@ func newRegisterCmd() *cobra.Command {
 				ReassertIntents: reassert,
 			})
 			if err != nil {
-				return fmt.Errorf("Register RPC failed: %w", err)
+				return fmt.Errorf("register RPC failed: %w", err)
 			}
 
 			fmt.Printf("Registered: session_id=%s\n", resp.SessionId)

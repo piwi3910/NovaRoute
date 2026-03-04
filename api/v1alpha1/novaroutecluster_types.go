@@ -8,6 +8,7 @@ import (
 // ClusterPhase represents the lifecycle phase of a NovaRouteCluster.
 type ClusterPhase string
 
+// ClusterPhase constants define the possible lifecycle phases for a NovaRouteCluster.
 const (
 	ClusterPhasePending      ClusterPhase = "Pending"
 	ClusterPhaseInitializing ClusterPhase = "Initializing"

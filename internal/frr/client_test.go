@@ -43,7 +43,7 @@ else
 fi
 exit 0
 `
-	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(content), 0o700); err != nil { //nolint:gosec // Test script needs execute permission
 		t.Fatalf("write fake vtysh: %v", err)
 	}
 
@@ -57,7 +57,7 @@ exit 0
 // readRecordedStdin returns the stdin content sent to fake vtysh.
 func readRecordedStdin(t *testing.T, dir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "stdin"))
+	data, err := os.ReadFile(filepath.Join(dir, "stdin")) //nolint:gosec // Test file path constructed from temp dir
 	if err != nil {
 		t.Fatalf("read recorded stdin: %v", err)
 	}
@@ -67,7 +67,7 @@ func readRecordedStdin(t *testing.T, dir string) string {
 // readRecordedShowCmd returns the show command sent to fake vtysh.
 func readRecordedShowCmd(t *testing.T, dir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "show_cmd"))
+	data, err := os.ReadFile(filepath.Join(dir, "show_cmd")) //nolint:gosec // Test file path constructed from temp dir
 	if err != nil {
 		t.Fatalf("read recorded show_cmd: %v", err)
 	}
@@ -77,7 +77,7 @@ func readRecordedShowCmd(t *testing.T, dir string) string {
 // setFakeResponse writes a response that the fake vtysh will return.
 func setFakeResponse(t *testing.T, dir, response string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "response"), []byte(response), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "response"), []byte(response), 0o600); err != nil {
 		t.Fatalf("write fake response: %v", err)
 	}
 }
@@ -117,7 +117,7 @@ func TestIsReady(t *testing.T) {
 
 	// Create fake socket files.
 	for _, name := range []string{"zebra.vty", "bgpd.vty"} {
-		f, err := os.Create(filepath.Join(dir, name))
+		f, err := os.Create(filepath.Join(dir, name)) //nolint:gosec // Test file path constructed from temp dir
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -526,7 +526,7 @@ func TestRunConfigVtyshError(t *testing.T) {
 echo "% Unknown command"
 exit 0
 `
-	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(content), 0o700); err != nil { //nolint:gosec // Test script needs execute permission
 		t.Fatal(err)
 	}
 
@@ -551,7 +551,7 @@ func TestRunConfigVtyshExitError(t *testing.T) {
 echo "connection refused"
 exit 1
 `
-	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(content), 0o700); err != nil { //nolint:gosec // Test script needs execute permission
 		t.Fatal(err)
 	}
 
@@ -572,7 +572,7 @@ func TestRunShowVtyshError(t *testing.T) {
 echo "vtysh: cannot connect"
 exit 2
 `
-	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(content), 0o700); err != nil { //nolint:gosec // Test script needs execute permission
 		t.Fatal(err)
 	}
 

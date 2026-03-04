@@ -11,7 +11,7 @@ import (
 type NeighborConfig struct {
 	SourceAddress string
 	EBGPMultihop  uint32
-	Password      string
+	Password      string //nolint:gosec // BGP neighbor password field, not a credential
 	Description   string
 }
 
@@ -32,10 +32,11 @@ func (c *Client) ConfigureBGPGlobal(ctx context.Context, localAS uint32, routerI
 		zap.String("router_id", routerID),
 	)
 
-	commands := []string{
+	commands := make([]string, 0, 5)
+	commands = append(commands,
 		fmt.Sprintf("router bgp %d", localAS),
 		fmt.Sprintf("bgp router-id %s", routerID),
-	}
+	)
 	commands = append(commands, bgpGracefulRestartCommands()...)
 
 	if err := c.runConfig(ctx, commands); err != nil {
@@ -59,10 +60,11 @@ func (c *Client) ReconfigureBGPGlobal(ctx context.Context, oldAS, newAS uint32, 
 			zap.Uint32("local_as", newAS),
 			zap.String("router_id", routerID),
 		)
-		commands := []string{
+		commands := make([]string, 0, 5)
+		commands = append(commands,
 			fmt.Sprintf("router bgp %d", newAS),
 			fmt.Sprintf("bgp router-id %s", routerID),
-		}
+		)
 		commands = append(commands, bgpGracefulRestartCommands()...)
 		if err := c.runConfig(ctx, commands); err != nil {
 			return fmt.Errorf("frr: update router-id (AS=%d): %w", newAS, err)
@@ -282,10 +284,11 @@ func (c *Client) ConfigureRouteMap(ctx context.Context, name string, setCmds []s
 	)
 
 	// Remove old route-map first for clean state.
-	commands := []string{
+	commands := make([]string, 0, 3+len(setCmds))
+	commands = append(commands,
 		fmt.Sprintf("no route-map %s", name),
 		fmt.Sprintf("route-map %s permit 10", name),
-	}
+	)
 	commands = append(commands, setCmds...)
 	commands = append(commands, "exit")
 

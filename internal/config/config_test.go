@@ -382,7 +382,7 @@ func TestExpandEnvVars_UnsetVarBecomesEmpty(t *testing.T) {
 	os.Unsetenv("NOVAROUTE_UNSET_VAR_TEST")
 
 	cfg := validConfig()
-	cfg.Owners["novaedge"] = OwnerConfig{
+	cfg.Owners["novaedge"] = OwnerConfig{ //nolint:gosec // Test fixture, not real credentials
 		Token:           "${NOVAROUTE_UNSET_VAR_TEST}",
 		AllowedPrefixes: PrefixPolicy{Type: "any"},
 	}
@@ -440,7 +440,7 @@ func TestExpandEnvVars_MixedLiteralAndVar(t *testing.T) {
 	t.Setenv("PART", "world")
 
 	cfg := validConfig()
-	cfg.Owners["novaedge"] = OwnerConfig{
+	cfg.Owners["novaedge"] = OwnerConfig{ //nolint:gosec // Test fixture, not real credentials
 		Token:           "hello-${PART}-suffix",
 		AllowedPrefixes: PrefixPolicy{Type: "any"},
 	}

@@ -222,7 +222,7 @@ func main() {
 	}
 
 	// Start listening on Unix socket.
-	lis, err := net.Listen("unix", socketPath)
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "unix", socketPath)
 	if err != nil {
 		logger.Fatal("failed to listen on Unix socket",
 			zap.String("path", socketPath),

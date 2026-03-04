@@ -100,7 +100,7 @@ func (c *Client) runConfig(ctx context.Context, commands []string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.vtyshPath, "--vty_socket", c.socketDir)
+	cmd := exec.CommandContext(ctx, c.vtyshPath, "--vty_socket", c.socketDir) //nolint:gosec // Arguments are constructed internally, not from user input
 	cmd.Stdin = strings.NewReader(input)
 
 	out, err := cmd.CombinedOutput()
@@ -134,7 +134,7 @@ func (c *Client) runShow(ctx context.Context, command string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.vtyshPath, "--vty_socket", c.socketDir, "-c", command)
+	cmd := exec.CommandContext(ctx, c.vtyshPath, "--vty_socket", c.socketDir, "-c", command) //nolint:gosec // Arguments are constructed internally, not from user input
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

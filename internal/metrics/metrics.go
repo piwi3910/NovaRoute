@@ -1,3 +1,4 @@
+// Package metrics provides Prometheus metrics for NovaRoute.
 package metrics
 
 import (
