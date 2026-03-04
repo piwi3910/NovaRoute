@@ -71,10 +71,14 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Helm lint
-        run: helm lint charts/novaroute-operator
+        run: |
+          helm lint charts/novaroute
+          helm lint charts/novaroute-operator
 
       - name: Helm template
-        run: helm template novaroute-operator charts/novaroute-operator
+        run: |
+          helm template novaroute charts/novaroute
+          helm template novaroute-operator charts/novaroute-operator
 
   phase1-gate:
     name: "Phase 1: Gate"

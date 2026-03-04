@@ -1,0 +1,80 @@
+# Default values for novaroute
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full name
+fullnameOverride: ""
+
+# -- Agent configuration
+agent:
+  image:
+    # -- Agent image repository
+    repository: ghcr.io/piwi3910/novaroute/novaroute-agent
+    # -- Agent image tag (defaults to chart appVersion)
+    tag: ""
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+  # -- Resource requests and limits
+  resources: {}
+  # -- Extra command-line arguments
+  extraArgs: []
+  # -- Extra environment variables
+  extraEnv: []
+  # -- Metrics port
+  metricsPort: 9102
+  # -- Unix socket path
+  socketPath: /run/novaroute/novaroute.sock
+  # -- Log level: debug, info, warn, error
+  logLevel: info
+  # -- Node selector for DaemonSet scheduling
+  nodeSelector: {}
+  # -- Tolerations (default: tolerate all NoSchedule/NoExecute)
+  tolerations: []
+
+# -- FRR sidecar configuration
+frr:
+  image:
+    # -- FRR image
+    repository: ghcr.io/piwi3910/novaroute/novaroute-frr
+    # -- FRR image tag
+    tag: "10.5.1"
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+  # -- Resource requests and limits
+  resources: {}
+  # -- Enable BGP daemon
+  bgpd: true
+  # -- Enable OSPF daemon
+  ospfd: true
+  # -- Enable BFD daemon
+  bfdd: true
+
+# -- Agent owner authentication configuration
+owners: {}
+  # novanet:
+  #   token: ""
+  #   prefixType: "allow-all"
+  #   allowedCIDRs: []
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Service account configuration
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+
+# -- RBAC configuration
+rbac:
+  # -- Create RBAC resources
+  create: true
+
+# -- PostSync test hooks for ArgoCD CT (Continuous Testing)
+tests:
+  image: bitnami/kubectl:latest
+  smoke:
+    enabled: true
+  integration:
+    enabled: true

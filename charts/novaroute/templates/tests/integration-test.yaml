@@ -1,0 +1,67 @@
+{{- if .Values.tests.integration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "novaroute.fullname" . }}-integration-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "novaroute.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: test
+    spec:
+      serviceAccountName: {{ include "novaroute.fullname" . }}-test
+      restartPolicy: Never
+      containers:
+        - name: integration-test
+          image: {{ .Values.tests.image | default "bitnami/kubectl:latest" }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              echo "=== NovaRoute Integration Test ==="
+
+              echo "1. Verifying all DaemonSet pods are ready..."
+              DESIRED=$(kubectl get ds {{ include "novaroute.fullname" . }}-agent -n {{ .Release.Namespace }} -o jsonpath='{.status.desiredNumberScheduled}')
+              READY=$(kubectl get ds {{ include "novaroute.fullname" . }}-agent -n {{ .Release.Namespace }} -o jsonpath='{.status.numberReady}')
+              echo "   Desired: $DESIRED, Ready: $READY"
+              if [ "$DESIRED" != "$READY" ]; then
+                echo "FAIL: Not all pods are ready"
+                kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/component=agent
+                exit 1
+              fi
+              echo "   All agent pods are ready"
+
+              echo "2. Checking both containers running in agent pods..."
+              POD_NAME=$(kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/component=agent -o jsonpath='{.items[0].metadata.name}')
+              CONTAINERS=$(kubectl get pod $POD_NAME -n {{ .Release.Namespace }} -o jsonpath='{.spec.containers[*].name}')
+              echo "   Containers: $CONTAINERS"
+              if ! echo "$CONTAINERS" | grep -q "novaroute-agent"; then
+                echo "FAIL: novaroute-agent container not found"
+                exit 1
+              fi
+              if ! echo "$CONTAINERS" | grep -q "frr"; then
+                echo "FAIL: frr container not found"
+                exit 1
+              fi
+
+              echo "3. Checking RBAC resources..."
+              if kubectl get clusterrole {{ include "novaroute.fullname" . }}-agent &>/dev/null; then
+                echo "   ClusterRole exists"
+              else
+                echo "FAIL: ClusterRole not found"
+                exit 1
+              fi
+
+              echo ""
+              echo "=== Integration Test PASSED ==="
+{{- end }}

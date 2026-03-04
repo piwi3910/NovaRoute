@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "novaroute.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "novaroute.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "novaroute.labels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.agent.metricsPort | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "novaroute.serviceAccountName" . }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+        {{- if .Values.agent.tolerations }}
+        {{- toYaml .Values.agent.tolerations | nindent 8 }}
+        {{- else }}
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+        {{- end }}
+      containers:
+        - name: novaroute-agent
+          image: {{ include "novaroute.agentImage" . }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          args:
+            - --config=/etc/novaroute/config.json
+            {{- range .Values.agent.extraArgs }}
+            - {{ . }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.agent.metricsPort }}
+              protocol: TCP
+          {{- with .Values.agent.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.agent.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.agent.metricsPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.agent.metricsPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          volumeMounts:
+            - name: run
+              mountPath: /run/novaroute
+            - name: frr-sock
+              mountPath: /run/frr
+            - name: config
+              mountPath: /etc/novaroute
+              readOnly: true
+        - name: frr
+          image: {{ include "novaroute.frrImage" . }}
+          imagePullPolicy: {{ .Values.frr.image.pullPolicy }}
+          {{- with .Values.frr.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_ADMIN
+          volumeMounts:
+            - name: frr-sock
+              mountPath: /run/frr
+            - name: frr-config
+              mountPath: /etc/frr
+              readOnly: true
+      volumes:
+        - name: run
+          hostPath:
+            path: /run/novaroute
+            type: DirectoryOrCreate
+        - name: frr-sock
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "novaroute.fullname" . }}-config
+        - name: frr-config
+          configMap:
+            name: {{ include "novaroute.fullname" . }}-frr-bootstrap

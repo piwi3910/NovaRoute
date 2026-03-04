@@ -6,25 +6,26 @@ metadata:
   annotations:
     argocd-image-updater.argoproj.io/image-list: agent=ghcr.io/piwi3910/novaroute-agent
     argocd-image-updater.argoproj.io/agent.update-strategy: latest
-    argocd-image-updater.argoproj.io/agent.helm.image-name: image.repository
-    argocd-image-updater.argoproj.io/agent.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/agent.helm.image-name: agent.image.repository
+    argocd-image-updater.argoproj.io/agent.helm.image-tag: agent.image.tag
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
     repoURL: https://github.com/piwi3910/NovaRoute
-    path: charts/novaroute-operator
+    path: charts/novaroute
     targetRevision: main
     helm:
       releaseName: novaroute
       valuesObject:
-        image:
-          repository: ghcr.io/piwi3910/novaroute-agent
-          tag: latest
+        agent:
+          image:
+            repository: ghcr.io/piwi3910/novaroute-agent
+            tag: latest
   destination:
     server: https://kubernetes.default.svc
-    namespace: nova-system
+    namespace: novaroute-system
   syncPolicy:
     automated:
       prune: true
