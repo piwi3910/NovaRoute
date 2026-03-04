@@ -375,6 +375,9 @@ jobs:
     runs-on: arc-runner-novaroute
     needs: [phase4-gate]
     if: ${{ !cancelled() && needs.phase4-gate.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -403,7 +406,6 @@ jobs:
 
       - name: Trigger CT pipeline
         if: success()
-        continue-on-error: true
         uses: peter-evans/repository-dispatch@v3
         with:
           event-type: deployment-complete
