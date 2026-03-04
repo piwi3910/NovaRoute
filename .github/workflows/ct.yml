@@ -37,9 +37,11 @@ jobs:
           cache: true
       - name: Install gotestsum
         run: GOTOOLCHAIN=auto go install gotest.tools/gotestsum@latest
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc
       - name: Run functional tests
         run: |
-          gotestsum \
+          CGO_ENABLED=1 gotestsum \
             --junitfile ct-functional-results.xml \
             --format pkgname \
             -- -race -tags=functional -count=1 ./...
@@ -74,9 +76,11 @@ jobs:
           cache: true
       - name: Install gotestsum
         run: GOTOOLCHAIN=auto go install gotest.tools/gotestsum@latest
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc
       - name: Run integration tests
         run: |
-          gotestsum \
+          CGO_ENABLED=1 gotestsum \
             --junitfile ct-integration-results.xml \
             --format pkgname \
             -- -race -tags=integration -count=1 -timeout=10m ./...
@@ -117,7 +121,11 @@ jobs:
         run: |
           echo "## Performance Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat benchmark-results.txt >> $GITHUB_STEP_SUMMARY
+          head -n 500 benchmark-results.txt >> $GITHUB_STEP_SUMMARY
+          TOTAL=$(wc -l < benchmark-results.txt)
+          if [ "$TOTAL" -gt 500 ]; then
+            echo "... (truncated, $TOTAL total lines — see artifact for full results)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo '```' >> $GITHUB_STEP_SUMMARY
       - name: Upload artifacts
         if: always()

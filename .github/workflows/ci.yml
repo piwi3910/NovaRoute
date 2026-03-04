@@ -376,6 +376,7 @@ jobs:
     needs: [phase4-gate]
     if: ${{ !cancelled() && needs.phase4-gate.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     permissions:
+      actions: write
       contents: write
       packages: write
     steps:
@@ -406,9 +407,9 @@ jobs:
 
       - name: Trigger CT pipeline
         if: success()
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          event-type: deployment-complete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run ct.yml --repo ${{ github.repository }}
 
   # =============================================================================
   # Status Check (for branch protection)
