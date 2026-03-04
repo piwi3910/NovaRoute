@@ -110,7 +110,7 @@ jobs:
       - name: Build documentation
         run: |
           sudo apt-get update && sudo apt-get install -y ruby-full build-essential
-          cd docs && sudo gem install bundler && bundle install && bundle exec jekyll build
+          cd docs && sudo gem install bundler && sudo bundle install && bundle exec jekyll build
 
   phase2-docs-freshness:
     name: "Phase 2: Docs Freshness"
@@ -160,12 +160,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'CRITICAL,HIGH'
+        run: trivy fs --severity CRITICAL,HIGH --exit-code 1 .
 
   phase2-gate:
     name: "Phase 2: Gate"
@@ -331,11 +331,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
       - name: Trivy container scan
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: 'novaroute-agent:test'
-          severity: 'CRITICAL,HIGH'
+        run: trivy image --severity CRITICAL,HIGH --exit-code 1 novaroute-agent:test
 
   phase4-gate:
     name: "Phase 4: Gate"
