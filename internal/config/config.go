@@ -5,12 +5,37 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+)
+
+// Sentinel errors returned by Validate for configuration problems.
+var (
+	// General field errors.
+	ErrListenSocketEmpty        = errors.New("listen_socket must not be empty")
+	ErrAtLeastOneOwnerRequired  = errors.New("at least one owner must be configured")
+	ErrDisconnectGracePeriodNeg = errors.New("disconnect_grace_period must not be negative")
+
+	// FRR configuration errors.
+	ErrFRRSocketDirEmpty         = errors.New("frr.socket_dir must not be empty")
+	ErrFRRConnectTimeoutPositive = errors.New("frr.connect_timeout must be positive")
+	ErrFRRRetryIntervalPositive  = errors.New("frr.retry_interval must be positive")
+
+	// BGP configuration errors.
+	ErrBGPRouterIDInvalid = errors.New("bgp.router_id is not a valid IP address")
+
+	// Owner configuration errors.
+	ErrOwnerTokenEmpty        = errors.New("token must not be empty")
+	ErrOwnerPrefixTypeEmpty   = errors.New("allowed_prefixes.type must not be empty")
+	ErrOwnerPrefixTypeUnknown = errors.New("unknown allowed_prefixes.type (must be host_only, subnet, or any)")
+
+	// Log level errors.
+	ErrLogLevelInvalid = errors.New("log_level is not valid (must be debug, info, warn, or error)")
 )
 
 // Config holds the complete NovaRoute agent configuration.
@@ -125,44 +150,44 @@ func LoadFromFile(path string) (*Config, error) {
 // found, or nil if the configuration is valid.
 func Validate(cfg *Config) error {
 	if cfg.ListenSocket == "" {
-		return fmt.Errorf("listen_socket must not be empty")
+		return ErrListenSocketEmpty
 	}
 
 	if cfg.FRR.SocketDir == "" {
-		return fmt.Errorf("frr.socket_dir must not be empty")
+		return ErrFRRSocketDirEmpty
 	}
 
 	if cfg.FRR.ConnectTimeout <= 0 {
-		return fmt.Errorf("frr.connect_timeout must be positive, got %d", cfg.FRR.ConnectTimeout)
+		return fmt.Errorf("frr.connect_timeout must be positive, got %d: %w", cfg.FRR.ConnectTimeout, ErrFRRConnectTimeoutPositive)
 	}
 
 	if cfg.FRR.RetryInterval <= 0 {
-		return fmt.Errorf("frr.retry_interval must be positive, got %d", cfg.FRR.RetryInterval)
+		return fmt.Errorf("frr.retry_interval must be positive, got %d: %w", cfg.FRR.RetryInterval, ErrFRRRetryIntervalPositive)
 	}
 
 	// BGP config is optional — clients can configure it at runtime via ConfigureBGP RPC.
 	if cfg.BGP.RouterID != "" {
 		if ip := net.ParseIP(cfg.BGP.RouterID); ip == nil {
-			return fmt.Errorf("bgp.router_id %q is not a valid IP address", cfg.BGP.RouterID)
+			return fmt.Errorf("bgp.router_id %q: %w", cfg.BGP.RouterID, ErrBGPRouterIDInvalid)
 		}
 	}
 
 	if len(cfg.Owners) == 0 {
-		return fmt.Errorf("at least one owner must be configured")
+		return ErrAtLeastOneOwnerRequired
 	}
 
 	for name, owner := range cfg.Owners {
 		if owner.Token == "" {
-			return fmt.Errorf("owner %q: token must not be empty", name)
+			return fmt.Errorf("owner %q: %w", name, ErrOwnerTokenEmpty)
 		}
 
 		switch strings.ToLower(owner.AllowedPrefixes.Type) {
 		case "host_only", "subnet", "any":
 			// valid
 		case "":
-			return fmt.Errorf("owner %q: allowed_prefixes.type must not be empty", name)
+			return fmt.Errorf("owner %q: %w", name, ErrOwnerPrefixTypeEmpty)
 		default:
-			return fmt.Errorf("owner %q: unknown allowed_prefixes.type %q (must be host_only, subnet, or any)", name, owner.AllowedPrefixes.Type)
+			return fmt.Errorf("owner %q: allowed_prefixes.type %q: %w", name, owner.AllowedPrefixes.Type, ErrOwnerPrefixTypeUnknown)
 		}
 
 		for i, cidr := range owner.AllowedPrefixes.AllowedCIDRs {
@@ -176,11 +201,11 @@ func Validate(cfg *Config) error {
 	case "debug", "info", "warn", "error":
 		// valid
 	default:
-		return fmt.Errorf("log_level %q is not valid (must be debug, info, warn, or error)", cfg.LogLevel)
+		return fmt.Errorf("log_level %q: %w", cfg.LogLevel, ErrLogLevelInvalid)
 	}
 
 	if cfg.DisconnectGracePeriod < 0 {
-		return fmt.Errorf("disconnect_grace_period must not be negative, got %d", cfg.DisconnectGracePeriod)
+		return fmt.Errorf("disconnect_grace_period must not be negative, got %d: %w", cfg.DisconnectGracePeriod, ErrDisconnectGracePeriodNeg)
 	}
 
 	return nil

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -32,6 +33,9 @@ import (
 	grpcCodes "google.golang.org/grpc/codes"
 	grpcStatus "google.golang.org/grpc/status"
 )
+
+// errInvalidSocketPath is returned when the listen_socket path has no directory separator.
+var errInvalidSocketPath = errors.New("invalid listen_socket path: must contain a directory separator")
 
 // frrState holds the shared FRR client state used across goroutines.
 type frrState struct {
@@ -100,7 +104,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("socket setup failed", zap.Error(err))
 	}
-	defer lis.Close()
+	defer func() { _ = lis.Close() }()
 	logger.Info("gRPC server listening", zap.String("socket", socketPath))
 
 	// Start gRPC server in background.
@@ -256,7 +260,7 @@ func setupSocketListener(ctx context.Context, cfg *config.Config, logger *zap.Lo
 
 	lastSlash := strings.LastIndex(socketPath, "/")
 	if lastSlash < 0 {
-		return nil, socketPath, fmt.Errorf("invalid listen_socket path: must contain a directory separator")
+		return nil, socketPath, errInvalidSocketPath
 	}
 	socketDir := socketPath[:lastSlash]
 	if socketDir != "" {
@@ -306,7 +310,7 @@ func startMetricsServer(cfg *config.Config, logger *zap.Logger, fs *frrState, ca
 
 	go func() {
 		logger.Info("metrics server starting", zap.String("address", cfg.MetricsAddress))
-		if metricsErr := metricsServer.ListenAndServe(); metricsErr != nil && metricsErr != http.ErrServerClosed {
+		if metricsErr := metricsServer.ListenAndServe(); metricsErr != nil && !errors.Is(metricsErr, http.ErrServerClosed) {
 			logger.Error("metrics server stopped", zap.Error(metricsErr))
 			cancel()
 		}

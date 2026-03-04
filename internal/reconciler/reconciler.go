@@ -20,6 +20,30 @@ import (
 	"go.uber.org/zap"
 )
 
+// Sentinel errors for err113 compliance.
+var (
+	// ErrFRRClientNotAvailable indicates the FRR client has not been set.
+	ErrFRRClientNotAvailable = errors.New("FRR client not available")
+
+	// ErrBGPGlobalNotSet indicates the BGP global config is missing or has AS=0.
+	ErrBGPGlobalNotSet = errors.New("BGP global config not set (local_as=0)")
+
+	// ErrUnexpectedIntentType indicates ApplyIntent received a value with the wrong Go type.
+	ErrUnexpectedIntentType = errors.New("unexpected intent value type")
+
+	// ErrUnknownIntentType indicates ApplyIntent/RemoveIntent received an unrecognised type string.
+	ErrUnknownIntentType = errors.New("unknown intent type")
+
+	// ErrIntentNotFound indicates RemoveIntent could not find the key in applied state.
+	ErrIntentNotFound = errors.New("intent not found in applied state")
+
+	// ErrUnspecifiedProtocol indicates a prefix intent has PROTOCOL_UNSPECIFIED.
+	ErrUnspecifiedProtocol = errors.New("unspecified protocol for prefix")
+
+	// ErrUnsupportedProtocol indicates a prefix intent has an unsupported protocol value.
+	ErrUnsupportedProtocol = errors.New("unsupported protocol for prefix")
+)
+
 // BGP/OSPF state constants used for FRR state monitoring comparisons.
 const (
 	bgpStateEstablished = "Established"
@@ -407,7 +431,7 @@ func (r *Reconciler) ApplyIntent(ctx context.Context, intentType string, value i
 	case "peer":
 		pi, ok := value.(*intent.PeerIntent)
 		if !ok {
-			return fmt.Errorf("ApplyIntent: expected *intent.PeerIntent, got %T", value)
+			return fmt.Errorf("ApplyIntent: expected *intent.PeerIntent, got %T: %w", value, ErrUnexpectedIntentType)
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -420,7 +444,7 @@ func (r *Reconciler) ApplyIntent(ctx context.Context, intentType string, value i
 	case "prefix":
 		pi, ok := value.(*intent.PrefixIntent)
 		if !ok {
-			return fmt.Errorf("ApplyIntent: expected *intent.PrefixIntent, got %T", value)
+			return fmt.Errorf("ApplyIntent: expected *intent.PrefixIntent, got %T: %w", value, ErrUnexpectedIntentType)
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -433,7 +457,7 @@ func (r *Reconciler) ApplyIntent(ctx context.Context, intentType string, value i
 	case "bfd":
 		bi, ok := value.(*intent.BFDIntent)
 		if !ok {
-			return fmt.Errorf("ApplyIntent: expected *intent.BFDIntent, got %T", value)
+			return fmt.Errorf("ApplyIntent: expected *intent.BFDIntent, got %T: %w", value, ErrUnexpectedIntentType)
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -446,7 +470,7 @@ func (r *Reconciler) ApplyIntent(ctx context.Context, intentType string, value i
 	case "ospf":
 		oi, ok := value.(*intent.OSPFIntent)
 		if !ok {
-			return fmt.Errorf("ApplyIntent: expected *intent.OSPFIntent, got %T", value)
+			return fmt.Errorf("ApplyIntent: expected *intent.OSPFIntent, got %T: %w", value, ErrUnexpectedIntentType)
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -457,7 +481,7 @@ func (r *Reconciler) ApplyIntent(ctx context.Context, intentType string, value i
 		return nil
 
 	default:
-		return fmt.Errorf("ApplyIntent: unknown intent type %q", intentType)
+		return fmt.Errorf("ApplyIntent: intent type %q: %w", intentType, ErrUnknownIntentType)
 	}
 }
 
@@ -476,7 +500,7 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 		mapKey := peerKey(key)
 		ap, ok := r.appliedPeers[mapKey]
 		if !ok {
-			return fmt.Errorf("RemoveIntent: peer %q not found in applied state", key)
+			return fmt.Errorf("RemoveIntent: peer %q: %w", key, ErrIntentNotFound)
 		}
 		if err := r.removePeerFromFRR(ctx, ap.NeighborAddress); err != nil {
 			return err
@@ -490,7 +514,7 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 		mapKey := "prefix:" + key
 		ap, ok := r.appliedPrefixes[mapKey]
 		if !ok {
-			return fmt.Errorf("RemoveIntent: prefix %q not found in applied state", key)
+			return fmt.Errorf("RemoveIntent: prefix %q: %w", key, ErrIntentNotFound)
 		}
 		if err := r.removePrefixFromFRR(ctx, ap); err != nil {
 			return err
@@ -502,7 +526,7 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 		mapKey := bfdKey(key)
 		ab, ok := r.appliedBFD[mapKey]
 		if !ok {
-			return fmt.Errorf("RemoveIntent: BFD %q not found in applied state", key)
+			return fmt.Errorf("RemoveIntent: BFD %q: %w", key, ErrIntentNotFound)
 		}
 		if err := r.removeBFDFromFRR(ctx, key, ab.InterfaceName); err != nil {
 			return err
@@ -514,7 +538,7 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 		mapKey := ospfKey(key)
 		ao, ok := r.appliedOSPF[mapKey]
 		if !ok {
-			return fmt.Errorf("RemoveIntent: OSPF %q not found in applied state", key)
+			return fmt.Errorf("RemoveIntent: OSPF %q: %w", key, ErrIntentNotFound)
 		}
 		if err := r.removeOSPFFromFRR(ctx, ao); err != nil {
 			return err
@@ -523,7 +547,7 @@ func (r *Reconciler) RemoveIntent(ctx context.Context, intentType string, key st
 		return nil
 
 	default:
-		return fmt.Errorf("RemoveIntent: unknown intent type %q", intentType)
+		return fmt.Errorf("RemoveIntent: intent type %q: %w", intentType, ErrUnknownIntentType)
 	}
 }
 
@@ -918,10 +942,10 @@ func (r *Reconciler) ensureBGPGlobal(ctx context.Context) error {
 		return nil
 	}
 	if r.frrClient == nil {
-		return fmt.Errorf("FRR client not available")
+		return ErrFRRClientNotAvailable
 	}
 	if r.bgpGlobal == nil || r.bgpGlobal.LocalAS == 0 {
-		return fmt.Errorf("BGP global config not set (local_as=0)")
+		return ErrBGPGlobalNotSet
 	}
 
 	r.logger.Info("configuring BGP global",
@@ -1164,10 +1188,10 @@ func (r *Reconciler) applyPrefixIntent(ctx context.Context, p *intent.PrefixInte
 		)
 
 	case v1.Protocol_PROTOCOL_UNSPECIFIED:
-		return fmt.Errorf("unspecified protocol for prefix %s", p.Prefix)
+		return fmt.Errorf("prefix %s: %w", p.Prefix, ErrUnspecifiedProtocol)
 
 	default:
-		return fmt.Errorf("unsupported protocol %v for prefix %s", p.Protocol, p.Prefix)
+		return fmt.Errorf("protocol %v for prefix %s: %w", p.Protocol, p.Prefix, ErrUnsupportedProtocol)
 	}
 
 	return nil
@@ -1177,7 +1201,7 @@ func (r *Reconciler) applyPrefixIntent(ctx context.Context, p *intent.PrefixInte
 func (r *Reconciler) removePrefixFromFRR(ctx context.Context, p *intent.PrefixIntent) error {
 	switch p.Protocol {
 	case v1.Protocol_PROTOCOL_UNSPECIFIED:
-		return fmt.Errorf("unspecified protocol for prefix removal %s", p.Prefix)
+		return fmt.Errorf("prefix removal %s: %w", p.Prefix, ErrUnspecifiedProtocol)
 
 	case v1.Protocol_PROTOCOL_BGP:
 		afi := detectAFI(p.Prefix)
@@ -1222,7 +1246,7 @@ func (r *Reconciler) removePrefixFromFRR(ctx context.Context, p *intent.PrefixIn
 		)
 
 	default:
-		return fmt.Errorf("unsupported protocol %v for prefix removal %s", p.Protocol, p.Prefix)
+		return fmt.Errorf("protocol %v for prefix removal %s: %w", p.Protocol, p.Prefix, ErrUnsupportedProtocol)
 	}
 
 	return nil

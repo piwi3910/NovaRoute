@@ -3,6 +3,7 @@ package frr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,10 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// ErrVtyshConfigError is returned when vtysh output contains error markers
+// indicating that one or more configuration commands were rejected by FRR.
+var ErrVtyshConfigError = errors.New("vtysh config error")
 
 // Client configures FRR daemons by invoking vtysh, the integrated FRR CLI
 // shell. Each operation runs "vtysh -c <cmd>" (for show commands) or
@@ -116,7 +121,7 @@ func (c *Client) runConfig(ctx context.Context, commands []string) error {
 		strings.Contains(outStr, "Command incomplete") ||
 		strings.Contains(outStr, "connection refused") ||
 		strings.Contains(outStr, "vtysh: error") {
-		return fmt.Errorf("frr: vtysh config error: %s", strings.TrimSpace(outStr))
+		return fmt.Errorf("frr: %s: %w", strings.TrimSpace(outStr), ErrVtyshConfigError)
 	}
 
 	for _, cmd := range commands {

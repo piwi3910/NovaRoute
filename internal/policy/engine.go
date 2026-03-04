@@ -1,12 +1,43 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 
 	"github.com/piwi3910/NovaRoute/internal/config"
 	"go.uber.org/zap"
+)
+
+// Sentinel errors for policy engine validation.
+var (
+	// ErrUnknownOwner is returned when the owner is not found in the policy configuration.
+	ErrUnknownOwner = errors.New("unknown owner")
+
+	// ErrInvalidToken is returned when the pre-shared token does not match.
+	ErrInvalidToken = errors.New("invalid token for owner")
+
+	// ErrHostOnlyIPv4Policy is returned when a non-/32 prefix violates a host_only policy for IPv4.
+	ErrHostOnlyIPv4Policy = errors.New("host_only policy: prefix is not a /32 host route")
+
+	// ErrHostOnlyIPv6Policy is returned when a non-/128 prefix violates a host_only policy for IPv6.
+	ErrHostOnlyIPv6Policy = errors.New("host_only policy: prefix is not a /128 host route")
+
+	// ErrSubnetIPv4Policy is returned when an IPv4 prefix is outside the /8-/28 range.
+	ErrSubnetIPv4Policy = errors.New("subnet policy: IPv4 prefix must be between /8 and /28")
+
+	// ErrSubnetIPv6Policy is returned when an IPv6 host route is used under a subnet policy.
+	ErrSubnetIPv6Policy = errors.New("subnet policy: IPv6 host route not allowed")
+
+	// ErrUnknownPrefixPolicyType is returned for an unrecognised prefix policy type.
+	ErrUnknownPrefixPolicyType = errors.New("unknown prefix policy type")
+
+	// ErrPrefixNotInAllowedCIDR is returned when a prefix is not within any configured allowed CIDR.
+	ErrPrefixNotInAllowedCIDR = errors.New("prefix is not within any allowed CIDR")
+
+	// ErrOwnershipConflict is returned when another owner already advertises the same prefix+protocol.
+	ErrOwnershipConflict = errors.New("ownership conflict")
 )
 
 const (
@@ -47,13 +78,13 @@ func (e *Engine) ValidateToken(owner, token string) error {
 		e.logger.Warn("token validation failed: unknown owner",
 			zap.String("owner", owner),
 		)
-		return fmt.Errorf("unknown owner: %s", owner)
+		return fmt.Errorf("%s: %w", owner, ErrUnknownOwner)
 	}
 	if ownerCfg.Token != token {
 		e.logger.Warn("token validation failed: invalid token",
 			zap.String("owner", owner),
 		)
-		return fmt.Errorf("invalid token for owner: %s", owner)
+		return fmt.Errorf("%s: %w", owner, ErrInvalidToken)
 	}
 	e.logger.Debug("token validated successfully",
 		zap.String("owner", owner),
@@ -67,7 +98,7 @@ func (e *Engine) ValidateToken(owner, token string) error {
 func (e *Engine) ValidatePrefix(owner, prefix string) error {
 	ownerCfg, ok := e.cfg.Owners[owner]
 	if !ok {
-		return fmt.Errorf("unknown owner: %s", owner)
+		return fmt.Errorf("%s: %w", owner, ErrUnknownOwner)
 	}
 
 	ip, ipNet, err := parseCIDR(prefix)
@@ -87,7 +118,7 @@ func (e *Engine) ValidatePrefix(owner, prefix string) error {
 				zap.String("prefix", prefix),
 				zap.Int("prefix_len", ones),
 			)
-			return fmt.Errorf("owner %s has host_only policy: prefix %s is not a /32 host route", owner, prefix)
+			return fmt.Errorf("owner %s prefix %s: %w", owner, prefix, ErrHostOnlyIPv4Policy)
 		}
 		if !isIPv4 && ones != 128 {
 			e.logger.Warn("prefix rejected by host_only policy",
@@ -95,7 +126,7 @@ func (e *Engine) ValidatePrefix(owner, prefix string) error {
 				zap.String("prefix", prefix),
 				zap.Int("prefix_len", ones),
 			)
-			return fmt.Errorf("owner %s has host_only policy: prefix %s is not a /128 host route", owner, prefix)
+			return fmt.Errorf("owner %s prefix %s: %w", owner, prefix, ErrHostOnlyIPv6Policy)
 		}
 
 	case PrefixTypeSubnet:
@@ -106,7 +137,7 @@ func (e *Engine) ValidatePrefix(owner, prefix string) error {
 					zap.String("prefix", prefix),
 					zap.Int("prefix_len", ones),
 				)
-				return fmt.Errorf("owner %s has subnet policy: IPv4 prefix %s must be between /8 and /28 (got /%d)", owner, prefix, ones)
+				return fmt.Errorf("owner %s prefix %s (/%d): %w", owner, prefix, ones, ErrSubnetIPv4Policy)
 			}
 		} else {
 			// For IPv6 subnet policy, reject host routes (/128)
@@ -118,7 +149,7 @@ func (e *Engine) ValidatePrefix(owner, prefix string) error {
 					zap.String("prefix", prefix),
 					zap.Int("prefix_len", ones),
 				)
-				return fmt.Errorf("owner %s has subnet policy: IPv6 host route %s (/%d) not allowed", owner, prefix, ones)
+				return fmt.Errorf("owner %s prefix %s (/%d): %w", owner, prefix, ones, ErrSubnetIPv6Policy)
 			}
 		}
 
@@ -126,7 +157,7 @@ func (e *Engine) ValidatePrefix(owner, prefix string) error {
 		// All prefix lengths are allowed.
 
 	default:
-		return fmt.Errorf("unknown prefix policy type %q for owner %s", ownerCfg.AllowedPrefixes.Type, owner)
+		return fmt.Errorf("type %q for owner %s: %w", ownerCfg.AllowedPrefixes.Type, owner, ErrUnknownPrefixPolicyType)
 	}
 
 	// Validate against AllowedCIDRs if configured.
@@ -174,14 +205,14 @@ func (e *Engine) validateAllowedCIDRs(owner string, ip net.IP, ipNet *net.IPNet,
 		zap.String("prefix", ipNet.String()),
 		zap.Strings("allowed_cidrs", allowedCIDRs),
 	)
-	return fmt.Errorf("owner %s: prefix %s is not within any allowed CIDR %v", owner, ipNet.String(), allowedCIDRs)
+	return fmt.Errorf("owner %s prefix %s allowed %v: %w", owner, ipNet.String(), allowedCIDRs, ErrPrefixNotInAllowedCIDR)
 }
 
 // ValidatePeerOperation checks whether the owner is allowed to manage
 // BGP peers. Currently all known owners can manage peers.
 func (e *Engine) ValidatePeerOperation(owner string) error {
 	if _, ok := e.cfg.Owners[owner]; !ok {
-		return fmt.Errorf("unknown owner: %s", owner)
+		return fmt.Errorf("%s: %w", owner, ErrUnknownOwner)
 	}
 	e.logger.Debug("peer operation validated",
 		zap.String("owner", owner),
@@ -193,7 +224,7 @@ func (e *Engine) ValidatePeerOperation(owner string) error {
 // BFD sessions. Currently all known owners can manage BFD.
 func (e *Engine) ValidateBFDOperation(owner string) error {
 	if _, ok := e.cfg.Owners[owner]; !ok {
-		return fmt.Errorf("unknown owner: %s", owner)
+		return fmt.Errorf("%s: %w", owner, ErrUnknownOwner)
 	}
 	e.logger.Debug("BFD operation validated",
 		zap.String("owner", owner),
@@ -205,7 +236,7 @@ func (e *Engine) ValidateBFDOperation(owner string) error {
 // OSPF areas and interfaces. Currently all known owners can manage OSPF.
 func (e *Engine) ValidateOSPFOperation(owner string) error {
 	if _, ok := e.cfg.Owners[owner]; !ok {
-		return fmt.Errorf("unknown owner: %s", owner)
+		return fmt.Errorf("%s: %w", owner, ErrUnknownOwner)
 	}
 	e.logger.Debug("OSPF operation validated",
 		zap.String("owner", owner),
@@ -245,8 +276,8 @@ func (e *Engine) CheckConflict(owner, prefix, protocol string, existingOwner str
 		zap.String("existing_owner", existingOwner),
 	)
 	return fmt.Errorf(
-		"conflict: prefix %s via %s is already owned by %s (requesting owner: %s)",
-		prefix, protocol, existingOwner, owner,
+		"prefix %s via %s is already owned by %s (requesting owner: %s): %w",
+		prefix, protocol, existingOwner, owner, ErrOwnershipConflict,
 	)
 }
 

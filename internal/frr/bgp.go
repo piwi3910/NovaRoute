@@ -2,10 +2,15 @@ package frr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
 )
+
+// ErrBGPNotConfigured is returned when a BGP operation is attempted before
+// configuring the local AS number via ConfigureBGPGlobal.
+var ErrBGPNotConfigured = errors.New("BGP local AS not configured")
 
 // NeighborConfig holds optional BGP neighbor configuration fields.
 type NeighborConfig struct {
@@ -114,7 +119,7 @@ func (c *Client) AddNeighbor(ctx context.Context, addr string, remoteAS uint32, 
 
 	localAS := c.getLocalAS(ctx)
 	if localAS == 0 {
-		return fmt.Errorf("frr: cannot add neighbor %s: BGP local AS not configured", addr)
+		return fmt.Errorf("frr: cannot add neighbor %s: %w", addr, ErrBGPNotConfigured)
 	}
 
 	commands := []string{

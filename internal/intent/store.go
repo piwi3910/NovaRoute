@@ -4,6 +4,7 @@
 package intent
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -12,6 +13,21 @@ import (
 
 	v1 "github.com/piwi3910/NovaRoute/api/v1"
 	"go.uber.org/zap"
+)
+
+// Sentinel errors for input validation and lookup failures.
+var (
+	ErrOwnerEmpty        = errors.New("owner must not be empty")
+	ErrIntentNil         = errors.New("intent must not be nil")
+	ErrNeighborAddrEmpty = errors.New("neighbor address must not be empty")
+	ErrPrefixEmpty       = errors.New("prefix must not be empty")
+	ErrPeerAddrEmpty     = errors.New("peer address must not be empty")
+	ErrIfaceNameEmpty    = errors.New("interface name must not be empty")
+	ErrAreaIDEmpty       = errors.New("area ID must not be empty")
+	ErrNoIntents         = errors.New("no intents found")
+	ErrIntentNotFound    = errors.New("intent not found")
+	ErrAreaIDInvalid     = errors.New("area ID must be in dotted-decimal format or an integer")
+	ErrAreaIDIPv6        = errors.New("OSPF area_id must be a dotted-decimal IPv4 address or integer, not IPv6")
 )
 
 // PeerIntent represents a BGP peer intent with metadata.
@@ -156,53 +172,94 @@ func (s *Store) ensureOwner(owner string) *OwnerIntents {
 	return oi
 }
 
-// SetPeerIntent adds or updates a BGP peer intent for the given owner.
-func (s *Store) SetPeerIntent(owner string, intent *PeerIntent) error {
+// intentResult holds the result of a type-specific intent store operation.
+// It carries pointers to the intent's timestamp fields, the previous CreatedAt
+// value (nil when the intent is newly created), and the extra log fields.
+type intentResult struct {
+	createdAt         *time.Time
+	updatedAt         *time.Time
+	existingCreatedAt *time.Time
+	logFields         []zap.Field
+}
+
+// setIntent is the common helper for adding/updating an intent.
+// It validates owner and nil-ness, acquires the lock, ensures the owner exists,
+// resolves timestamps (preserving CreatedAt on updates), and logs the action.
+// The execute callback must store the intent in the appropriate map and return
+// an intentResult with pointers to the new intent's timestamp fields.
+func (s *Store) setIntent(
+	owner string,
+	intentNil bool,
+	intentType string,
+	validate func() error,
+	execute func(oi *OwnerIntents) intentResult,
+) error {
 	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
+		return ErrOwnerEmpty
 	}
-	if intent == nil {
-		return fmt.Errorf("intent must not be nil")
+	if intentNil {
+		return ErrIntentNil
 	}
-	if intent.NeighborAddress == "" {
-		return fmt.Errorf("neighbor address must not be empty")
+	if err := validate(); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	oi := s.ensureOwner(owner)
-	key := peerKey(intent.NeighborAddress)
-
 	now := time.Now()
-	intent.Owner = owner
-	if existing, ok := oi.Peers[key]; ok {
-		intent.CreatedAt = existing.CreatedAt
-		intent.UpdatedAt = now
-		s.logger.Info("updated peer intent",
-			zap.String("owner", owner),
-			zap.String("neighbor", intent.NeighborAddress),
-		)
-	} else {
-		intent.CreatedAt = now
-		intent.UpdatedAt = now
-		s.logger.Info("created peer intent",
-			zap.String("owner", owner),
-			zap.String("neighbor", intent.NeighborAddress),
-		)
-	}
+	res := execute(oi)
 
-	oi.Peers[key] = intent
+	action := "created"
+	if res.existingCreatedAt != nil {
+		*res.createdAt = *res.existingCreatedAt
+		action = "updated"
+	} else {
+		*res.createdAt = now
+	}
+	*res.updatedAt = now
+
+	s.logger.Info(action+" "+intentType,
+		append([]zap.Field{zap.String("owner", owner)}, res.logFields...)...,
+	)
 	return nil
+}
+
+// SetPeerIntent adds or updates a BGP peer intent for the given owner.
+func (s *Store) SetPeerIntent(owner string, intent *PeerIntent) error {
+	return s.setIntent(owner, intent == nil, "peer intent",
+		func() error {
+			if intent.NeighborAddress == "" {
+				return ErrNeighborAddrEmpty
+			}
+			return nil
+		},
+		func(oi *OwnerIntents) intentResult {
+			key := peerKey(intent.NeighborAddress)
+			intent.Owner = owner
+			existing := oi.Peers[key]
+			oi.Peers[key] = intent
+			res := intentResult{
+				createdAt: &intent.CreatedAt,
+				updatedAt: &intent.UpdatedAt,
+				logFields: []zap.Field{zap.String("neighbor", intent.NeighborAddress)},
+			}
+			if existing != nil {
+				res.existingCreatedAt = &existing.CreatedAt
+			}
+			return res
+		},
+	)
 }
 
 // RemovePeerIntent removes a BGP peer intent for the given owner and neighbor address.
 func (s *Store) RemovePeerIntent(owner string, neighborAddr string) error {
 	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
+		return ErrOwnerEmpty
 	}
 	if neighborAddr == "" {
-		return fmt.Errorf("neighbor address must not be empty")
+		return ErrNeighborAddrEmpty
 	}
 
 	s.mu.Lock()
@@ -210,12 +267,12 @@ func (s *Store) RemovePeerIntent(owner string, neighborAddr string) error {
 
 	oi, ok := s.intents[owner]
 	if !ok {
-		return fmt.Errorf("owner %q has no intents", owner)
+		return fmt.Errorf("owner %q: %w", owner, ErrNoIntents)
 	}
 
 	key := peerKey(neighborAddr)
 	if _, ok := oi.Peers[key]; !ok {
-		return fmt.Errorf("peer intent for neighbor %q not found for owner %q", neighborAddr, owner)
+		return fmt.Errorf("peer intent for neighbor %q not found for owner %q: %w", neighborAddr, owner, ErrIntentNotFound)
 	}
 
 	delete(oi.Peers, key)
@@ -228,53 +285,41 @@ func (s *Store) RemovePeerIntent(owner string, neighborAddr string) error {
 
 // SetPrefixIntent adds or updates a prefix advertisement intent for the given owner.
 func (s *Store) SetPrefixIntent(owner string, intent *PrefixIntent) error {
-	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
-	}
-	if intent == nil {
-		return fmt.Errorf("intent must not be nil")
-	}
-	if intent.Prefix == "" {
-		return fmt.Errorf("prefix must not be empty")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	oi := s.ensureOwner(owner)
-	key := prefixKey(protocolString(intent.Protocol), intent.Prefix)
-
-	now := time.Now()
-	intent.Owner = owner
-	if existing, ok := oi.Prefixes[key]; ok {
-		intent.CreatedAt = existing.CreatedAt
-		intent.UpdatedAt = now
-		s.logger.Info("updated prefix intent",
-			zap.String("owner", owner),
-			zap.String("prefix", intent.Prefix),
-			zap.String("protocol", protocolString(intent.Protocol)),
-		)
-	} else {
-		intent.CreatedAt = now
-		intent.UpdatedAt = now
-		s.logger.Info("created prefix intent",
-			zap.String("owner", owner),
-			zap.String("prefix", intent.Prefix),
-			zap.String("protocol", protocolString(intent.Protocol)),
-		)
-	}
-
-	oi.Prefixes[key] = intent
-	return nil
+	return s.setIntent(owner, intent == nil, "prefix intent",
+		func() error {
+			if intent.Prefix == "" {
+				return ErrPrefixEmpty
+			}
+			return nil
+		},
+		func(oi *OwnerIntents) intentResult {
+			key := prefixKey(protocolString(intent.Protocol), intent.Prefix)
+			intent.Owner = owner
+			existing := oi.Prefixes[key]
+			oi.Prefixes[key] = intent
+			res := intentResult{
+				createdAt: &intent.CreatedAt,
+				updatedAt: &intent.UpdatedAt,
+				logFields: []zap.Field{
+					zap.String("prefix", intent.Prefix),
+					zap.String("protocol", protocolString(intent.Protocol)),
+				},
+			}
+			if existing != nil {
+				res.existingCreatedAt = &existing.CreatedAt
+			}
+			return res
+		},
+	)
 }
 
 // RemovePrefixIntent removes a prefix intent for the given owner, prefix, and protocol.
 func (s *Store) RemovePrefixIntent(owner string, prefix string, protocol string) error {
 	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
+		return ErrOwnerEmpty
 	}
 	if prefix == "" {
-		return fmt.Errorf("prefix must not be empty")
+		return ErrPrefixEmpty
 	}
 
 	s.mu.Lock()
@@ -282,12 +327,12 @@ func (s *Store) RemovePrefixIntent(owner string, prefix string, protocol string)
 
 	oi, ok := s.intents[owner]
 	if !ok {
-		return fmt.Errorf("owner %q has no intents", owner)
+		return fmt.Errorf("owner %q: %w", owner, ErrNoIntents)
 	}
 
 	key := prefixKey(protocol, prefix)
 	if _, ok := oi.Prefixes[key]; !ok {
-		return fmt.Errorf("prefix intent for %q (protocol %s) not found for owner %q", prefix, protocol, owner)
+		return fmt.Errorf("prefix intent for %q (protocol %s) not found for owner %q: %w", prefix, protocol, owner, ErrIntentNotFound)
 	}
 
 	delete(oi.Prefixes, key)
@@ -301,51 +346,38 @@ func (s *Store) RemovePrefixIntent(owner string, prefix string, protocol string)
 
 // SetBFDIntent adds or updates a BFD session intent for the given owner.
 func (s *Store) SetBFDIntent(owner string, intent *BFDIntent) error {
-	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
-	}
-	if intent == nil {
-		return fmt.Errorf("intent must not be nil")
-	}
-	if intent.PeerAddress == "" {
-		return fmt.Errorf("peer address must not be empty")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	oi := s.ensureOwner(owner)
-	key := bfdKey(intent.PeerAddress)
-
-	now := time.Now()
-	intent.Owner = owner
-	if existing, ok := oi.BFD[key]; ok {
-		intent.CreatedAt = existing.CreatedAt
-		intent.UpdatedAt = now
-		s.logger.Info("updated BFD intent",
-			zap.String("owner", owner),
-			zap.String("peer", intent.PeerAddress),
-		)
-	} else {
-		intent.CreatedAt = now
-		intent.UpdatedAt = now
-		s.logger.Info("created BFD intent",
-			zap.String("owner", owner),
-			zap.String("peer", intent.PeerAddress),
-		)
-	}
-
-	oi.BFD[key] = intent
-	return nil
+	return s.setIntent(owner, intent == nil, "BFD intent",
+		func() error {
+			if intent.PeerAddress == "" {
+				return ErrPeerAddrEmpty
+			}
+			return nil
+		},
+		func(oi *OwnerIntents) intentResult {
+			key := bfdKey(intent.PeerAddress)
+			intent.Owner = owner
+			existing := oi.BFD[key]
+			oi.BFD[key] = intent
+			res := intentResult{
+				createdAt: &intent.CreatedAt,
+				updatedAt: &intent.UpdatedAt,
+				logFields: []zap.Field{zap.String("peer", intent.PeerAddress)},
+			}
+			if existing != nil {
+				res.existingCreatedAt = &existing.CreatedAt
+			}
+			return res
+		},
+	)
 }
 
 // RemoveBFDIntent removes a BFD session intent for the given owner and peer address.
 func (s *Store) RemoveBFDIntent(owner string, peerAddr string) error {
 	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
+		return ErrOwnerEmpty
 	}
 	if peerAddr == "" {
-		return fmt.Errorf("peer address must not be empty")
+		return ErrPeerAddrEmpty
 	}
 
 	s.mu.Lock()
@@ -353,12 +385,12 @@ func (s *Store) RemoveBFDIntent(owner string, peerAddr string) error {
 
 	oi, ok := s.intents[owner]
 	if !ok {
-		return fmt.Errorf("owner %q has no intents", owner)
+		return fmt.Errorf("owner %q: %w", owner, ErrNoIntents)
 	}
 
 	key := bfdKey(peerAddr)
 	if _, ok := oi.BFD[key]; !ok {
-		return fmt.Errorf("BFD intent for peer %q not found for owner %q", peerAddr, owner)
+		return fmt.Errorf("BFD intent for peer %q not found for owner %q: %w", peerAddr, owner, ErrIntentNotFound)
 	}
 
 	delete(oi.BFD, key)
@@ -371,72 +403,59 @@ func (s *Store) RemoveBFDIntent(owner string, peerAddr string) error {
 
 // SetOSPFIntent adds or updates an OSPF interface intent for the given owner.
 func (s *Store) SetOSPFIntent(owner string, intent *OSPFIntent) error {
-	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
-	}
-	if intent == nil {
-		return fmt.Errorf("intent must not be nil")
-	}
-	if intent.InterfaceName == "" {
-		return fmt.Errorf("interface name must not be empty")
-	}
-	if intent.AreaID == "" {
-		return fmt.Errorf("area ID must not be empty")
-	}
-	// Validate area ID format: must be dotted-decimal (e.g. "0.0.0.0") or an integer.
-	if ip := net.ParseIP(intent.AreaID); ip != nil {
-		if ip.To4() == nil {
-			return fmt.Errorf("OSPF area_id must be a dotted-decimal IPv4 address or integer, not IPv6: %s", intent.AreaID)
-		}
-	} else {
-		// Not a dotted-decimal IP; check if it's a plain integer.
-		valid := true
-		for _, ch := range intent.AreaID {
-			if ch < '0' || ch > '9' {
-				valid = false
-				break
+	return s.setIntent(owner, intent == nil, "OSPF intent",
+		func() error {
+			if intent.InterfaceName == "" {
+				return ErrIfaceNameEmpty
 			}
-		}
-		if !valid {
-			return fmt.Errorf("area ID must be in dotted-decimal format (e.g. 0.0.0.0) or an integer, got %q", intent.AreaID)
-		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	oi := s.ensureOwner(owner)
-	key := ospfKey(intent.InterfaceName)
-
-	now := time.Now()
-	intent.Owner = owner
-	if existing, ok := oi.OSPF[key]; ok {
-		intent.CreatedAt = existing.CreatedAt
-		intent.UpdatedAt = now
-		s.logger.Info("updated OSPF intent",
-			zap.String("owner", owner),
-			zap.String("interface", intent.InterfaceName),
-		)
-	} else {
-		intent.CreatedAt = now
-		intent.UpdatedAt = now
-		s.logger.Info("created OSPF intent",
-			zap.String("owner", owner),
-			zap.String("interface", intent.InterfaceName),
-		)
-	}
-
-	oi.OSPF[key] = intent
-	return nil
+			if intent.AreaID == "" {
+				return ErrAreaIDEmpty
+			}
+			// Validate area ID format: must be dotted-decimal (e.g. "0.0.0.0") or an integer.
+			if ip := net.ParseIP(intent.AreaID); ip != nil {
+				if ip.To4() == nil {
+					return fmt.Errorf("%s: %w", intent.AreaID, ErrAreaIDIPv6)
+				}
+			} else {
+				// Not a dotted-decimal IP; check if it's a plain integer.
+				valid := true
+				for _, ch := range intent.AreaID {
+					if ch < '0' || ch > '9' {
+						valid = false
+						break
+					}
+				}
+				if !valid {
+					return fmt.Errorf("got %q: %w", intent.AreaID, ErrAreaIDInvalid)
+				}
+			}
+			return nil
+		},
+		func(oi *OwnerIntents) intentResult {
+			key := ospfKey(intent.InterfaceName)
+			intent.Owner = owner
+			existing := oi.OSPF[key]
+			oi.OSPF[key] = intent
+			res := intentResult{
+				createdAt: &intent.CreatedAt,
+				updatedAt: &intent.UpdatedAt,
+				logFields: []zap.Field{zap.String("interface", intent.InterfaceName)},
+			}
+			if existing != nil {
+				res.existingCreatedAt = &existing.CreatedAt
+			}
+			return res
+		},
+	)
 }
 
 // RemoveOSPFIntent removes an OSPF interface intent for the given owner and interface name.
 func (s *Store) RemoveOSPFIntent(owner string, ifaceName string) error {
 	if owner == "" {
-		return fmt.Errorf("owner must not be empty")
+		return ErrOwnerEmpty
 	}
 	if ifaceName == "" {
-		return fmt.Errorf("interface name must not be empty")
+		return ErrIfaceNameEmpty
 	}
 
 	s.mu.Lock()
@@ -444,12 +463,12 @@ func (s *Store) RemoveOSPFIntent(owner string, ifaceName string) error {
 
 	oi, ok := s.intents[owner]
 	if !ok {
-		return fmt.Errorf("owner %q has no intents", owner)
+		return fmt.Errorf("owner %q: %w", owner, ErrNoIntents)
 	}
 
 	key := ospfKey(ifaceName)
 	if _, ok := oi.OSPF[key]; !ok {
-		return fmt.Errorf("OSPF intent for interface %q not found for owner %q", ifaceName, owner)
+		return fmt.Errorf("OSPF intent for interface %q not found for owner %q: %w", ifaceName, owner, ErrIntentNotFound)
 	}
 
 	delete(oi.OSPF, key)

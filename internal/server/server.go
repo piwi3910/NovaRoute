@@ -454,62 +454,98 @@ func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.A
 	return &v1.ApplyPeerResponse{}, nil
 }
 
-// RemovePeer removes a BGP peer intent for the calling owner.
-func (s *Server) RemovePeer(ctx context.Context, req *v1.RemovePeerRequest) (*v1.RemovePeerResponse, error) {
-	start := time.Now()
-	defer func() { metrics.ObserveGRPCDuration("RemovePeer", time.Since(start).Seconds()) }()
+// removeIntentConfig captures the per-RPC differences for the common
+// validate-auth-remove-metrics flow shared by RemovePeer and DisableBFD.
+type removeIntentConfig struct {
+	rpcName      string // e.g. "RemovePeer"
+	idFieldName  string // e.g. "neighbor_address"
+	idValue      string // the actual ID value from the request
+	validateOp   func(owner string) error
+	opDeniedKey  string // policy violation key, e.g. "peer_operation_denied"
+	opDeniedMsg  string // user-facing denial message prefix
+	removeIntent func(owner, id string) error
+	intentType   string // e.g. "peer"
+	eventName    string // e.g. "peer_removed"
+	updateGauge  func(owner string)
+	logMessage   string // e.g. "peer intent removed"
+	logIDField   string // zap field name for the ID, e.g. "neighbor"
+}
 
-	owner := req.GetOwner()
-	token := req.GetToken()
-	neighborAddr := req.GetNeighborAddress()
-
+// handleRemoveIntent implements the common validation, authentication,
+// removal, metrics, reconciliation, and logging flow for removing an intent.
+func (s *Server) handleRemoveIntent(owner, token string, cfg removeIntentConfig) error {
 	if owner == "" {
-		return nil, status.Error(codes.InvalidArgument, "owner must not be empty")
+		return status.Error(codes.InvalidArgument, "owner must not be empty")
 	}
 	if token == "" {
-		return nil, status.Error(codes.InvalidArgument, "token must not be empty")
+		return status.Error(codes.InvalidArgument, "token must not be empty")
 	}
-	if neighborAddr == "" {
-		return nil, status.Error(codes.InvalidArgument, "neighbor_address must not be empty")
+	if cfg.idValue == "" {
+		return status.Errorf(codes.InvalidArgument, "%s must not be empty", cfg.idFieldName)
 	}
-	if net.ParseIP(neighborAddr) == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "neighbor_address is not a valid IP address: %s", neighborAddr)
+	if net.ParseIP(cfg.idValue) == nil {
+		return status.Errorf(codes.InvalidArgument, "%s is not a valid IP address: %s", cfg.idFieldName, cfg.idValue)
 	}
 
 	// Validate token.
 	if err := s.policy.ValidateToken(owner, token); err != nil {
 		metrics.RecordPolicyViolation(owner, "invalid_token")
-		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
+		return status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
 	}
 
-	// Validate peer operation policy.
-	if err := s.policy.ValidatePeerOperation(owner); err != nil {
-		metrics.RecordPolicyViolation(owner, "peer_operation_denied")
-		return nil, status.Errorf(codes.PermissionDenied, "peer operation denied: %v", err)
+	// Validate operation policy.
+	if err := cfg.validateOp(owner); err != nil {
+		metrics.RecordPolicyViolation(owner, cfg.opDeniedKey)
+		return status.Errorf(codes.PermissionDenied, "%s: %v", cfg.opDeniedMsg, err)
 	}
 
 	// Remove intent.
-	if err := s.intentStore.RemovePeerIntent(owner, neighborAddr); err != nil {
-		s.logger.Error("failed to remove peer intent",
+	if err := cfg.removeIntent(owner, cfg.idValue); err != nil {
+		s.logger.Error("failed to remove "+cfg.intentType+" intent",
 			zap.String("owner", owner),
-			zap.String("neighbor", neighborAddr),
+			zap.String(cfg.logIDField, cfg.idValue),
 			zap.Error(err),
 		)
-		return nil, status.Errorf(codes.NotFound, "failed to remove peer intent: %v", err)
+		return status.Errorf(codes.NotFound, "failed to remove %s intent: %v", cfg.intentType, err)
 	}
 
-	metrics.RecordIntent(owner, "peer", "remove")
-	s.updateOwnerPeerGauge(owner)
+	metrics.RecordIntent(owner, cfg.intentType, "remove")
+	cfg.updateGauge(owner)
 
 	// Trigger reconciliation.
 	s.reconciler.TriggerReconcile()
 
-	metrics.RecordEvent("peer_removed")
+	metrics.RecordEvent(cfg.eventName)
 
-	s.logger.Info("peer intent removed",
+	s.logger.Info(cfg.logMessage,
 		zap.String("owner", owner),
-		zap.String("neighbor", neighborAddr),
+		zap.String(cfg.logIDField, cfg.idValue),
 	)
+
+	return nil
+}
+
+// RemovePeer removes a BGP peer intent for the calling owner.
+func (s *Server) RemovePeer(ctx context.Context, req *v1.RemovePeerRequest) (*v1.RemovePeerResponse, error) {
+	start := time.Now()
+	defer func() { metrics.ObserveGRPCDuration("RemovePeer", time.Since(start).Seconds()) }()
+
+	if err := s.handleRemoveIntent(req.GetOwner(), req.GetToken(), removeIntentConfig{
+		rpcName:      "RemovePeer",
+		idFieldName:  "neighbor_address",
+		idValue:      req.GetNeighborAddress(),
+		validateOp:   s.policy.ValidatePeerOperation,
+		opDeniedKey:  "peer_operation_denied",
+		opDeniedMsg:  "peer operation denied",
+		removeIntent: s.intentStore.RemovePeerIntent,
+		intentType:   "peer",
+		eventName:    "peer_removed",
+		updateGauge:  s.updateOwnerPeerGauge,
+		logMessage:   "peer intent removed",
+		logIDField:   "neighbor",
+	}); err != nil {
+		return nil, err
+	}
 
 	return &v1.RemovePeerResponse{}, nil
 }
@@ -824,57 +860,22 @@ func (s *Server) DisableBFD(ctx context.Context, req *v1.DisableBFDRequest) (*v1
 	start := time.Now()
 	defer func() { metrics.ObserveGRPCDuration("DisableBFD", time.Since(start).Seconds()) }()
 
-	owner := req.GetOwner()
-	token := req.GetToken()
-	peerAddr := req.GetPeerAddress()
-
-	if owner == "" {
-		return nil, status.Error(codes.InvalidArgument, "owner must not be empty")
+	if err := s.handleRemoveIntent(req.GetOwner(), req.GetToken(), removeIntentConfig{
+		rpcName:      "DisableBFD",
+		idFieldName:  "peer_address",
+		idValue:      req.GetPeerAddress(),
+		validateOp:   s.policy.ValidateBFDOperation,
+		opDeniedKey:  "bfd_operation_denied",
+		opDeniedMsg:  "BFD operation denied",
+		removeIntent: s.intentStore.RemoveBFDIntent,
+		intentType:   "bfd",
+		eventName:    "bfd_disabled",
+		updateGauge:  s.updateOwnerBFDGauge,
+		logMessage:   "BFD intent disabled",
+		logIDField:   "peer",
+	}); err != nil {
+		return nil, err
 	}
-	if token == "" {
-		return nil, status.Error(codes.InvalidArgument, "token must not be empty")
-	}
-	if peerAddr == "" {
-		return nil, status.Error(codes.InvalidArgument, "peer_address must not be empty")
-	}
-	if net.ParseIP(peerAddr) == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "peer_address is not a valid IP address: %s", peerAddr)
-	}
-
-	// Validate token.
-	if err := s.policy.ValidateToken(owner, token); err != nil {
-		metrics.RecordPolicyViolation(owner, "invalid_token")
-		return nil, status.Errorf(codes.Unauthenticated, "authentication failed: %v", err)
-	}
-
-	// Validate BFD operation policy.
-	if err := s.policy.ValidateBFDOperation(owner); err != nil {
-		metrics.RecordPolicyViolation(owner, "bfd_operation_denied")
-		return nil, status.Errorf(codes.PermissionDenied, "BFD operation denied: %v", err)
-	}
-
-	// Remove intent.
-	if err := s.intentStore.RemoveBFDIntent(owner, peerAddr); err != nil {
-		s.logger.Error("failed to remove BFD intent",
-			zap.String("owner", owner),
-			zap.String("peer", peerAddr),
-			zap.Error(err),
-		)
-		return nil, status.Errorf(codes.NotFound, "failed to remove BFD intent: %v", err)
-	}
-
-	metrics.RecordIntent(owner, "bfd", "remove")
-	s.updateOwnerBFDGauge(owner)
-
-	// Trigger reconciliation.
-	s.reconciler.TriggerReconcile()
-
-	metrics.RecordEvent("bfd_disabled")
-
-	s.logger.Info("BFD intent disabled",
-		zap.String("owner", owner),
-		zap.String("peer", peerAddr),
-	)
 
 	return &v1.DisableBFDResponse{}, nil
 }

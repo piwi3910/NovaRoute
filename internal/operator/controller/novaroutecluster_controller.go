@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,9 @@ import (
 
 	novaroutev1alpha1 "github.com/piwi3910/NovaRoute/api/v1alpha1"
 )
+
+// errNotClientObject is returned when a runtime.Object does not implement client.Object.
+var errNotClientObject = stderrors.New("object does not implement client.Object")
 
 const (
 	novaRouteClusterFinalizer = "novaroute.io/finalizer"
@@ -831,7 +835,7 @@ func (r *NovaRouteClusterReconciler) createOrUpdate(ctx context.Context, obj cli
 	existingObj := obj.DeepCopyObject()
 	existing, ok := existingObj.(client.Object)
 	if !ok {
-		return fmt.Errorf("object does not implement client.Object")
+		return errNotClientObject
 	}
 
 	if err := r.Get(ctx, key, existing); err != nil {

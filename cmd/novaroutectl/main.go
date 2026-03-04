@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,6 +16,12 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+)
+
+// Sentinel errors for CLI input validation.
+var (
+	errInvalidPeerType      = errors.New("invalid --peer-type: must be external|ebgp|internal|ibgp")
+	errInvalidAddressFamily = errors.New("invalid --address-families value: must be ipv4-unicast|ipv4|ipv6-unicast|ipv6")
 )
 
 var socketPath string
@@ -522,7 +529,7 @@ func newApplyPeerCmd() *cobra.Command {
 			case "internal", "ibgp":
 				pt = v1.PeerType_PEER_TYPE_INTERNAL
 			default:
-				return fmt.Errorf("invalid --peer-type %q: must be external|ebgp|internal|ibgp", peerType)
+				return fmt.Errorf("%q: %w", peerType, errInvalidPeerType)
 			}
 
 			var afs []v1.AddressFamily
@@ -533,7 +540,7 @@ func newApplyPeerCmd() *cobra.Command {
 				case "ipv6-unicast", "ipv6":
 					afs = append(afs, v1.AddressFamily_ADDRESS_FAMILY_IPV6_UNICAST)
 				default:
-					return fmt.Errorf("invalid --address-families value %q: must be ipv4-unicast|ipv4|ipv6-unicast|ipv6", af)
+					return fmt.Errorf("%q: %w", af, errInvalidAddressFamily)
 				}
 			}
 
@@ -593,13 +600,26 @@ func newApplyPeerCmd() *cobra.Command {
 	return cmd
 }
 
-// newRemovePeerCmd creates the "remove-peer" subcommand.
-func newRemovePeerCmd() *cobra.Command {
-	var owner, token, neighbor string
+// simpleRPCConfig describes a cobra command that takes owner, token, and a
+// single ID field, connects via gRPC, invokes one RPC, and prints a success
+// message.  Three commands share this exact pattern (remove-peer, disable-bfd,
+// disable-ospf), so we factor them into a shared helper to avoid duplication.
+type simpleRPCConfig struct {
+	use        string
+	short      string
+	idFlag     string
+	idDesc     string
+	rpcCall    func(client v1.RouteControlClient, ctx context.Context, owner, token, id string) error
+	successFmt string // must contain one %s verb for the id value
+}
+
+// newSimpleRPCCmd builds a cobra command from a simpleRPCConfig.
+func newSimpleRPCCmd(cfg simpleRPCConfig) *cobra.Command {
+	var owner, token, id string
 
 	cmd := &cobra.Command{
-		Use:   "remove-peer",
-		Short: "Remove a BGP peer",
+		Use:   cfg.use,
+		Short: cfg.short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, conn, err := connect()
 			if err != nil {
@@ -610,27 +630,44 @@ func newRemovePeerCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			_, err = client.RemovePeer(ctx, &v1.RemovePeerRequest{
-				Owner:           owner,
-				Token:           token,
-				NeighborAddress: neighbor,
-			})
-			if err != nil {
-				return fmt.Errorf("RemovePeer RPC failed: %w", err)
+			if err := cfg.rpcCall(client, ctx, owner, token, id); err != nil {
+				return err
 			}
 
-			fmt.Printf("Peer removed: neighbor=%s\n", neighbor)
+			fmt.Printf(cfg.successFmt, id)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
 	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
-	cmd.Flags().StringVar(&neighbor, "neighbor", "", "neighbor IP address (required)")
+	cmd.Flags().StringVar(&id, cfg.idFlag, "", cfg.idDesc)
 	_ = cmd.MarkFlagRequired("owner")
 	_ = cmd.MarkFlagRequired("token")
-	_ = cmd.MarkFlagRequired("neighbor")
+	_ = cmd.MarkFlagRequired(cfg.idFlag)
 	return cmd
+}
+
+// newRemovePeerCmd creates the "remove-peer" subcommand.
+func newRemovePeerCmd() *cobra.Command {
+	return newSimpleRPCCmd(simpleRPCConfig{
+		use:    "remove-peer",
+		short:  "Remove a BGP peer",
+		idFlag: "neighbor",
+		idDesc: "neighbor IP address (required)",
+		rpcCall: func(client v1.RouteControlClient, ctx context.Context, owner, token, id string) error {
+			_, err := client.RemovePeer(ctx, &v1.RemovePeerRequest{
+				Owner:           owner,
+				Token:           token,
+				NeighborAddress: id,
+			})
+			if err != nil {
+				return fmt.Errorf("RemovePeer RPC failed: %w", err)
+			}
+			return nil
+		},
+		successFmt: "Peer removed: neighbor=%s\n",
+	})
 }
 
 // newAdvertiseCmd creates the "advertise" subcommand.
@@ -794,42 +831,24 @@ func newEnableBFDCmd() *cobra.Command {
 
 // newDisableBFDCmd creates the "disable-bfd" subcommand.
 func newDisableBFDCmd() *cobra.Command {
-	var owner, token, peerAddr string
-
-	cmd := &cobra.Command{
-		Use:   "disable-bfd",
-		Short: "Disable BFD on a peer",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			client, conn, err := connect()
-			if err != nil {
-				return err
-			}
-			defer func() { _ = conn.Close() }()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			_, err = client.DisableBFD(ctx, &v1.DisableBFDRequest{
+	return newSimpleRPCCmd(simpleRPCConfig{
+		use:    "disable-bfd",
+		short:  "Disable BFD on a peer",
+		idFlag: "peer",
+		idDesc: "peer address (required)",
+		rpcCall: func(client v1.RouteControlClient, ctx context.Context, owner, token, id string) error {
+			_, err := client.DisableBFD(ctx, &v1.DisableBFDRequest{
 				Owner:       owner,
 				Token:       token,
-				PeerAddress: peerAddr,
+				PeerAddress: id,
 			})
 			if err != nil {
 				return fmt.Errorf("DisableBFD RPC failed: %w", err)
 			}
-
-			fmt.Printf("BFD disabled: peer=%s\n", peerAddr)
 			return nil
 		},
-	}
-
-	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
-	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
-	cmd.Flags().StringVar(&peerAddr, "peer", "", "peer address (required)")
-	_ = cmd.MarkFlagRequired("owner")
-	_ = cmd.MarkFlagRequired("token")
-	_ = cmd.MarkFlagRequired("peer")
-	return cmd
+		successFmt: "BFD disabled: peer=%s\n",
+	})
 }
 
 // newEnableOSPFCmd creates the "enable-ospf" subcommand.
@@ -887,40 +906,22 @@ func newEnableOSPFCmd() *cobra.Command {
 
 // newDisableOSPFCmd creates the "disable-ospf" subcommand.
 func newDisableOSPFCmd() *cobra.Command {
-	var owner, token, iface string
-
-	cmd := &cobra.Command{
-		Use:   "disable-ospf",
-		Short: "Disable OSPF on an interface",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			client, conn, err := connect()
-			if err != nil {
-				return err
-			}
-			defer func() { _ = conn.Close() }()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			_, err = client.DisableOSPF(ctx, &v1.DisableOSPFRequest{
+	return newSimpleRPCCmd(simpleRPCConfig{
+		use:    "disable-ospf",
+		short:  "Disable OSPF on an interface",
+		idFlag: "interface",
+		idDesc: "interface name (required)",
+		rpcCall: func(client v1.RouteControlClient, ctx context.Context, owner, token, id string) error {
+			_, err := client.DisableOSPF(ctx, &v1.DisableOSPFRequest{
 				Owner:         owner,
 				Token:         token,
-				InterfaceName: iface,
+				InterfaceName: id,
 			})
 			if err != nil {
 				return fmt.Errorf("DisableOSPF RPC failed: %w", err)
 			}
-
-			fmt.Printf("OSPF disabled: interface=%s\n", iface)
 			return nil
 		},
-	}
-
-	cmd.Flags().StringVar(&owner, "owner", "", "owner name (required)")
-	cmd.Flags().StringVar(&token, "token", "", "authentication token (required)")
-	cmd.Flags().StringVar(&iface, "interface", "", "interface name (required)")
-	_ = cmd.MarkFlagRequired("owner")
-	_ = cmd.MarkFlagRequired("token")
-	_ = cmd.MarkFlagRequired("interface")
-	return cmd
+		successFmt: "OSPF disabled: interface=%s\n",
+	})
 }

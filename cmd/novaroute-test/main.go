@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -22,6 +23,15 @@ var (
 	failed = 0
 )
 
+// Sentinel errors for test assertions.
+var (
+	errExpectedSessionID       = errors.New("expected non-empty session_id")
+	errExpectedError           = errors.New("expected error")
+	errExpectedUnauthenticated = errors.New("expected Unauthenticated code")
+	errExpectedRejection       = errors.New("expected rejection")
+	errUnexpectedCount         = errors.New("unexpected resource count")
+)
+
 func main() {
 	os.Exit(run())
 }
@@ -36,7 +46,7 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "FATAL: connect: %v\n", err)
 		return 1
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := v1.NewRouteControlClient(conn)
 
 	fmt.Println("========================================")
@@ -76,7 +86,7 @@ func testSessionManagement(client v1.RouteControlClient) {
 			return err
 		}
 		if resp.SessionId == "" {
-			return fmt.Errorf("expected non-empty session_id")
+			return errExpectedSessionID
 		}
 		fmt.Printf("    session_id=%s\n", resp.SessionId)
 		return nil
@@ -91,7 +101,7 @@ func testSessionManagement(client v1.RouteControlClient) {
 			return err
 		}
 		if resp.SessionId == "" {
-			return fmt.Errorf("expected non-empty session_id")
+			return errExpectedSessionID
 		}
 		return nil
 	})
@@ -102,11 +112,11 @@ func testSessionManagement(client v1.RouteControlClient) {
 			Token: "wrong-token",
 		})
 		if err == nil {
-			return fmt.Errorf("expected error for bad token, got success")
+			return fmt.Errorf("bad token got success: %w", errExpectedError)
 		}
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.Unauthenticated {
-			return fmt.Errorf("expected Unauthenticated, got %v", err)
+			return fmt.Errorf("got %v: %w", err, errExpectedUnauthenticated)
 		}
 		fmt.Printf("    correctly rejected: %s\n", st.Message())
 		return nil
@@ -118,11 +128,11 @@ func testSessionManagement(client v1.RouteControlClient) {
 			Token: "anything",
 		})
 		if err == nil {
-			return fmt.Errorf("expected error for unknown owner")
+			return fmt.Errorf("unknown owner got success: %w", errExpectedError)
 		}
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.Unauthenticated {
-			return fmt.Errorf("expected Unauthenticated, got %v", err)
+			return fmt.Errorf("got %v: %w", err, errExpectedUnauthenticated)
 		}
 		return nil
 	})
@@ -190,7 +200,7 @@ func testPrefixAdvertisement(client v1.RouteControlClient) {
 			Protocol: v1.Protocol_PROTOCOL_BGP,
 		})
 		if err == nil {
-			return fmt.Errorf("expected rejection for /24 prefix with host_only policy")
+			return fmt.Errorf("/24 prefix with host_only policy: %w", errExpectedRejection)
 		}
 		st, _ := status.FromError(err)
 		fmt.Printf("    correctly rejected: %s (code=%s)\n", st.Message(), st.Code())
@@ -219,7 +229,7 @@ func testPrefixAdvertisement(client v1.RouteControlClient) {
 			Protocol: v1.Protocol_PROTOCOL_BGP,
 		})
 		if err == nil {
-			return fmt.Errorf("expected rejection for prefix outside allowed CIDRs")
+			return fmt.Errorf("prefix outside allowed CIDRs: %w", errExpectedRejection)
 		}
 		st, _ := status.FromError(err)
 		fmt.Printf("    correctly rejected: %s (code=%s)\n", st.Message(), st.Code())
@@ -238,10 +248,10 @@ func testStatusVerification(client v1.RouteControlClient) {
 		fmt.Printf("    peers=%d prefixes=%d bfd=%d ospf=%d\n",
 			len(resp.Peers), len(resp.Prefixes), len(resp.BfdSessions), len(resp.OspfInterfaces))
 		if len(resp.Peers) != 2 {
-			return fmt.Errorf("expected 2 peers, got %d", len(resp.Peers))
+			return fmt.Errorf("expected 2 peers, got %d: %w", len(resp.Peers), errUnexpectedCount)
 		}
 		if len(resp.Prefixes) != 2 {
-			return fmt.Errorf("expected 2 prefixes, got %d", len(resp.Prefixes))
+			return fmt.Errorf("expected 2 prefixes, got %d: %w", len(resp.Prefixes), errUnexpectedCount)
 		}
 		for _, p := range resp.Peers {
 			fmt.Printf("    peer: %s AS %d owner=%s\n", p.NeighborAddress, p.RemoteAs, p.Owner)
@@ -260,10 +270,10 @@ func testStatusVerification(client v1.RouteControlClient) {
 			return err
 		}
 		if len(resp.Peers) != 1 {
-			return fmt.Errorf("expected 1 novaedge peer, got %d", len(resp.Peers))
+			return fmt.Errorf("expected 1 novaedge peer, got %d: %w", len(resp.Peers), errUnexpectedCount)
 		}
 		if len(resp.Prefixes) != 1 {
-			return fmt.Errorf("expected 1 novaedge prefix, got %d", len(resp.Prefixes))
+			return fmt.Errorf("expected 1 novaedge prefix, got %d: %w", len(resp.Prefixes), errUnexpectedCount)
 		}
 		fmt.Printf("    novaedge: 1 peer, 1 prefix (correct)\n")
 		return nil
@@ -299,7 +309,7 @@ func testNovanetOwnerPolicy(client v1.RouteControlClient) {
 			Protocol: v1.Protocol_PROTOCOL_BGP,
 		})
 		if err == nil {
-			return fmt.Errorf("expected rejection for /32 with subnet policy")
+			return fmt.Errorf("/32 with subnet policy: %w", errExpectedRejection)
 		}
 		st, _ := status.FromError(err)
 		fmt.Printf("    correctly rejected: %s (code=%s)\n", st.Message(), st.Code())
@@ -337,10 +347,10 @@ func testCleanupOperations(client v1.RouteControlClient) {
 			return err
 		}
 		if len(resp.Peers) != 0 {
-			return fmt.Errorf("expected 0 novaedge peers, got %d", len(resp.Peers))
+			return fmt.Errorf("expected 0 novaedge peers, got %d: %w", len(resp.Peers), errUnexpectedCount)
 		}
 		if len(resp.Prefixes) != 0 {
-			return fmt.Errorf("expected 0 novaedge prefixes, got %d", len(resp.Prefixes))
+			return fmt.Errorf("expected 0 novaedge prefixes, got %d: %w", len(resp.Prefixes), errUnexpectedCount)
 		}
 		fmt.Printf("    novaedge: 0 peers, 0 prefixes (clean)\n")
 		return nil
@@ -354,10 +364,10 @@ func testCleanupOperations(client v1.RouteControlClient) {
 			return err
 		}
 		if len(resp.Peers) != 1 {
-			return fmt.Errorf("expected 1 admin peer, got %d", len(resp.Peers))
+			return fmt.Errorf("expected 1 admin peer, got %d: %w", len(resp.Peers), errUnexpectedCount)
 		}
 		if len(resp.Prefixes) != 1 {
-			return fmt.Errorf("expected 1 admin prefix, got %d", len(resp.Prefixes))
+			return fmt.Errorf("expected 1 admin prefix, got %d: %w", len(resp.Prefixes), errUnexpectedCount)
 		}
 		fmt.Printf("    admin: 1 peer, 1 prefix (intact)\n")
 		return nil
@@ -380,10 +390,10 @@ func testCleanupOperations(client v1.RouteControlClient) {
 			return err
 		}
 		if len(resp.Peers) != 0 {
-			return fmt.Errorf("expected 0 admin peers, got %d", len(resp.Peers))
+			return fmt.Errorf("expected 0 admin peers, got %d: %w", len(resp.Peers), errUnexpectedCount)
 		}
 		if len(resp.Prefixes) != 0 {
-			return fmt.Errorf("expected 0 admin prefixes, got %d", len(resp.Prefixes))
+			return fmt.Errorf("expected 0 admin prefixes, got %d: %w", len(resp.Prefixes), errUnexpectedCount)
 		}
 		fmt.Printf("    admin: 0 peers, 0 prefixes (deregistered)\n")
 		return nil
@@ -409,8 +419,8 @@ func testFinalCleanState(client v1.RouteControlClient) {
 		}
 		total := len(resp.Peers) + len(resp.Prefixes) + len(resp.BfdSessions) + len(resp.OspfInterfaces)
 		if total != 0 {
-			return fmt.Errorf("expected 0 total resources, got %d (peers=%d prefixes=%d bfd=%d ospf=%d)",
-				total, len(resp.Peers), len(resp.Prefixes), len(resp.BfdSessions), len(resp.OspfInterfaces))
+			return fmt.Errorf("expected 0 total resources, got %d (peers=%d prefixes=%d bfd=%d ospf=%d): %w",
+				total, len(resp.Peers), len(resp.Prefixes), len(resp.BfdSessions), len(resp.OspfInterfaces), errUnexpectedCount)
 		}
 		fmt.Printf("    all resources: 0 (system is clean)\n")
 		return nil
