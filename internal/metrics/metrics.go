@@ -1,5 +1,5 @@
-// Package metrics provides Prometheus metrics for NovaRoute.
-package metrics
+// Package routemetrics provides Prometheus metrics for NovaRoute.
+package routemetrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"

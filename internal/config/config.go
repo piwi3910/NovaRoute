@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -103,16 +104,17 @@ func DefaultConfig() *Config {
 // corresponding defaults; fields absent from the file retain their default
 // values.
 func LoadFromFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	cleanPath := filepath.Clean(path)
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading config file %s: %w", path, err)
+		return nil, fmt.Errorf("reading config file %s: %w", cleanPath, err)
 	}
 
 	// Start with defaults so absent fields keep sensible values.
 	cfg := DefaultConfig()
 
 	if err := json.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
+		return nil, fmt.Errorf("parsing config file %s: %w", cleanPath, err)
 	}
 
 	return cfg, nil

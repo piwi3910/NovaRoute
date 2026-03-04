@@ -8,6 +8,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// testOwnerNovaedge is the default owner name used in tests.
+const testOwnerNovaedge = "novaedge"
+
 func newTestStore() *Store {
 	logger, _ := zap.NewDevelopment()
 	return NewStore(logger)
@@ -18,7 +21,7 @@ func newTestStore() *Store {
 func TestSetAndGetPeerIntent(t *testing.T) {
 	s := newTestStore()
 
-	intent := &PeerIntent{
+	pi := &PeerIntent{
 		NeighborAddress:     "192.168.1.1",
 		RemoteAS:            65001,
 		PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
@@ -35,7 +38,7 @@ func TestSetAndGetPeerIntent(t *testing.T) {
 		Password:            "secret",
 	}
 
-	err := s.SetPeerIntent("novaedge", intent)
+	err := s.SetPeerIntent(testOwnerNovaedge, pi)
 	if err != nil {
 		t.Fatalf("SetPeerIntent failed: %v", err)
 	}
@@ -46,50 +49,9 @@ func TestSetAndGetPeerIntent(t *testing.T) {
 	}
 
 	p := peers[0]
-	if p.Owner != "novaedge" {
-		t.Errorf("expected owner 'novaedge', got %q", p.Owner)
-	}
-	if p.NeighborAddress != "192.168.1.1" {
-		t.Errorf("expected neighbor '192.168.1.1', got %q", p.NeighborAddress)
-	}
-	if p.RemoteAS != 65001 {
-		t.Errorf("expected remote AS 65001, got %d", p.RemoteAS)
-	}
-	if p.PeerType != v1.PeerType_PEER_TYPE_EXTERNAL {
-		t.Errorf("expected peer type EXTERNAL, got %v", p.PeerType)
-	}
-	if p.Keepalive != 30 {
-		t.Errorf("expected keepalive 30, got %d", p.Keepalive)
-	}
-	if p.HoldTime != 90 {
-		t.Errorf("expected hold time 90, got %d", p.HoldTime)
-	}
-	if !p.BFDEnabled {
-		t.Error("expected BFD enabled")
-	}
-	if p.BFDMinRxMs != 300 {
-		t.Errorf("expected BFDMinRxMs 300, got %d", p.BFDMinRxMs)
-	}
-	if p.BFDMinTxMs != 300 {
-		t.Errorf("expected BFDMinTxMs 300, got %d", p.BFDMinTxMs)
-	}
-	if p.BFDDetectMultiplier != 3 {
-		t.Errorf("expected BFDDetectMultiplier 3, got %d", p.BFDDetectMultiplier)
-	}
-	if p.Description != "test peer" {
-		t.Errorf("expected description 'test peer', got %q", p.Description)
-	}
-	if len(p.AddressFamilies) != 1 || p.AddressFamilies[0] != v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST {
-		t.Errorf("unexpected address families: %v", p.AddressFamilies)
-	}
-	if p.SourceAddress != "10.0.0.1" {
-		t.Errorf("expected source address '10.0.0.1', got %q", p.SourceAddress)
-	}
-	if p.EBGPMultihop != 2 {
-		t.Errorf("expected eBGP multihop 2, got %d", p.EBGPMultihop)
-	}
-	if p.Password != "secret" {
-		t.Errorf("expected password 'secret', got %q", p.Password)
+	assertPeerFields(t, p, pi)
+	if p.Owner != testOwnerNovaedge {
+		t.Errorf("expected owner %q, got %q", testOwnerNovaedge, p.Owner)
 	}
 	if p.CreatedAt.IsZero() {
 		t.Error("expected non-zero CreatedAt")
@@ -99,10 +61,63 @@ func TestSetAndGetPeerIntent(t *testing.T) {
 	}
 }
 
+// assertPeerFields validates that the stored peer intent matches the original input.
+func assertPeerFields(t *testing.T, got *PeerIntent, want *PeerIntent) {
+	t.Helper()
+	if got.NeighborAddress != want.NeighborAddress {
+		t.Errorf("NeighborAddress = %q, want %q", got.NeighborAddress, want.NeighborAddress)
+	}
+	if got.RemoteAS != want.RemoteAS {
+		t.Errorf("RemoteAS = %d, want %d", got.RemoteAS, want.RemoteAS)
+	}
+	if got.PeerType != want.PeerType {
+		t.Errorf("PeerType = %v, want %v", got.PeerType, want.PeerType)
+	}
+	if got.Keepalive != want.Keepalive {
+		t.Errorf("Keepalive = %d, want %d", got.Keepalive, want.Keepalive)
+	}
+	if got.HoldTime != want.HoldTime {
+		t.Errorf("HoldTime = %d, want %d", got.HoldTime, want.HoldTime)
+	}
+	if got.BFDEnabled != want.BFDEnabled {
+		t.Errorf("BFDEnabled = %v, want %v", got.BFDEnabled, want.BFDEnabled)
+	}
+	if got.BFDMinRxMs != want.BFDMinRxMs {
+		t.Errorf("BFDMinRxMs = %d, want %d", got.BFDMinRxMs, want.BFDMinRxMs)
+	}
+	if got.BFDMinTxMs != want.BFDMinTxMs {
+		t.Errorf("BFDMinTxMs = %d, want %d", got.BFDMinTxMs, want.BFDMinTxMs)
+	}
+	if got.BFDDetectMultiplier != want.BFDDetectMultiplier {
+		t.Errorf("BFDDetectMultiplier = %d, want %d", got.BFDDetectMultiplier, want.BFDDetectMultiplier)
+	}
+	if got.Description != want.Description {
+		t.Errorf("Description = %q, want %q", got.Description, want.Description)
+	}
+	if len(got.AddressFamilies) != len(want.AddressFamilies) {
+		t.Errorf("AddressFamilies length = %d, want %d", len(got.AddressFamilies), len(want.AddressFamilies))
+	} else {
+		for i := range want.AddressFamilies {
+			if got.AddressFamilies[i] != want.AddressFamilies[i] {
+				t.Errorf("AddressFamilies[%d] = %v, want %v", i, got.AddressFamilies[i], want.AddressFamilies[i])
+			}
+		}
+	}
+	if got.SourceAddress != want.SourceAddress {
+		t.Errorf("SourceAddress = %q, want %q", got.SourceAddress, want.SourceAddress)
+	}
+	if got.EBGPMultihop != want.EBGPMultihop {
+		t.Errorf("EBGPMultihop = %d, want %d", got.EBGPMultihop, want.EBGPMultihop)
+	}
+	if got.Password != want.Password {
+		t.Errorf("Password = %q, want %q", got.Password, want.Password)
+	}
+}
+
 func TestUpdatePeerIntentPreservesCreatedAt(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -113,7 +128,7 @@ func TestUpdatePeerIntentPreservesCreatedAt(t *testing.T) {
 	first := s.GetPeerIntents()[0]
 	createdAt := first.CreatedAt
 
-	err = s.SetPeerIntent("novaedge", &PeerIntent{
+	err = s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65002,
 	})
@@ -133,7 +148,7 @@ func TestUpdatePeerIntentPreservesCreatedAt(t *testing.T) {
 func TestRemovePeerIntent(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -141,7 +156,7 @@ func TestRemovePeerIntent(t *testing.T) {
 		t.Fatalf("SetPeerIntent failed: %v", err)
 	}
 
-	err = s.RemovePeerIntent("novaedge", "192.168.1.1")
+	err = s.RemovePeerIntent(testOwnerNovaedge, "192.168.1.1")
 	if err != nil {
 		t.Fatalf("RemovePeerIntent failed: %v", err)
 	}
@@ -155,7 +170,7 @@ func TestRemovePeerIntent(t *testing.T) {
 func TestRemovePeerIntentNotFound(t *testing.T) {
 	s := newTestStore()
 
-	err := s.RemovePeerIntent("novaedge", "192.168.1.1")
+	err := s.RemovePeerIntent(testOwnerNovaedge, "192.168.1.1")
 	if err == nil {
 		t.Fatal("expected error removing non-existent peer intent")
 	}
@@ -164,7 +179,7 @@ func TestRemovePeerIntentNotFound(t *testing.T) {
 func TestRemovePeerIntentWrongOwner(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -192,12 +207,12 @@ func TestSetPeerIntentValidation(t *testing.T) {
 		t.Error("expected error for empty owner")
 	}
 
-	err = s.SetPeerIntent("novaedge", nil)
+	err = s.SetPeerIntent(testOwnerNovaedge, nil)
 	if err == nil {
 		t.Error("expected error for nil intent")
 	}
 
-	err = s.SetPeerIntent("novaedge", &PeerIntent{NeighborAddress: ""})
+	err = s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{NeighborAddress: ""})
 	if err == nil {
 		t.Error("expected error for empty neighbor address")
 	}
@@ -217,7 +232,7 @@ func TestSetAndGetPrefixIntent(t *testing.T) {
 		NextHop:         "192.168.1.1",
 	}
 
-	err := s.SetPrefixIntent("novaedge", intent)
+	err := s.SetPrefixIntent(testOwnerNovaedge, intent)
 	if err != nil {
 		t.Fatalf("SetPrefixIntent failed: %v", err)
 	}
@@ -228,7 +243,7 @@ func TestSetAndGetPrefixIntent(t *testing.T) {
 	}
 
 	p := prefixes[0]
-	if p.Owner != "novaedge" {
+	if p.Owner != testOwnerNovaedge {
 		t.Errorf("expected owner 'novaedge', got %q", p.Owner)
 	}
 	if p.Prefix != "10.0.0.0/24" {
@@ -257,7 +272,7 @@ func TestSetAndGetPrefixIntent(t *testing.T) {
 func TestRemovePrefixIntent(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err := s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_BGP,
 	})
@@ -265,7 +280,7 @@ func TestRemovePrefixIntent(t *testing.T) {
 		t.Fatalf("SetPrefixIntent failed: %v", err)
 	}
 
-	err = s.RemovePrefixIntent("novaedge", "10.0.0.0/24", "bgp")
+	err = s.RemovePrefixIntent(testOwnerNovaedge, "10.0.0.0/24", "bgp")
 	if err != nil {
 		t.Fatalf("RemovePrefixIntent failed: %v", err)
 	}
@@ -279,7 +294,7 @@ func TestRemovePrefixIntent(t *testing.T) {
 func TestRemovePrefixIntentWrongProtocol(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err := s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_BGP,
 	})
@@ -287,7 +302,7 @@ func TestRemovePrefixIntentWrongProtocol(t *testing.T) {
 		t.Fatalf("SetPrefixIntent failed: %v", err)
 	}
 
-	err = s.RemovePrefixIntent("novaedge", "10.0.0.0/24", "ospf")
+	err = s.RemovePrefixIntent(testOwnerNovaedge, "10.0.0.0/24", "ospf")
 	if err == nil {
 		t.Fatal("expected error removing prefix with wrong protocol")
 	}
@@ -301,7 +316,7 @@ func TestRemovePrefixIntentWrongProtocol(t *testing.T) {
 func TestSamePrefixDifferentProtocols(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err := s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_BGP,
 	})
@@ -309,7 +324,7 @@ func TestSamePrefixDifferentProtocols(t *testing.T) {
 		t.Fatalf("SetPrefixIntent BGP failed: %v", err)
 	}
 
-	err = s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err = s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_OSPF,
 	})
@@ -331,12 +346,12 @@ func TestSetPrefixIntentValidation(t *testing.T) {
 		t.Error("expected error for empty owner")
 	}
 
-	err = s.SetPrefixIntent("novaedge", nil)
+	err = s.SetPrefixIntent(testOwnerNovaedge, nil)
 	if err == nil {
 		t.Error("expected error for nil intent")
 	}
 
-	err = s.SetPrefixIntent("novaedge", &PrefixIntent{Prefix: ""})
+	err = s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{Prefix: ""})
 	if err == nil {
 		t.Error("expected error for empty prefix")
 	}
@@ -355,7 +370,7 @@ func TestSetAndGetBFDIntent(t *testing.T) {
 		InterfaceName:    "eth0",
 	}
 
-	err := s.SetBFDIntent("novaedge", intent)
+	err := s.SetBFDIntent(testOwnerNovaedge, intent)
 	if err != nil {
 		t.Fatalf("SetBFDIntent failed: %v", err)
 	}
@@ -366,7 +381,7 @@ func TestSetAndGetBFDIntent(t *testing.T) {
 	}
 
 	b := bfds[0]
-	if b.Owner != "novaedge" {
+	if b.Owner != testOwnerNovaedge {
 		t.Errorf("expected owner 'novaedge', got %q", b.Owner)
 	}
 	if b.PeerAddress != "192.168.1.1" {
@@ -389,7 +404,7 @@ func TestSetAndGetBFDIntent(t *testing.T) {
 func TestRemoveBFDIntent(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetBFDIntent("novaedge", &BFDIntent{
+	err := s.SetBFDIntent(testOwnerNovaedge, &BFDIntent{
 		PeerAddress: "192.168.1.1",
 		MinRxMs:     300,
 		MinTxMs:     300,
@@ -398,7 +413,7 @@ func TestRemoveBFDIntent(t *testing.T) {
 		t.Fatalf("SetBFDIntent failed: %v", err)
 	}
 
-	err = s.RemoveBFDIntent("novaedge", "192.168.1.1")
+	err = s.RemoveBFDIntent(testOwnerNovaedge, "192.168.1.1")
 	if err != nil {
 		t.Fatalf("RemoveBFDIntent failed: %v", err)
 	}
@@ -412,7 +427,7 @@ func TestRemoveBFDIntent(t *testing.T) {
 func TestRemoveBFDIntentNotFound(t *testing.T) {
 	s := newTestStore()
 
-	err := s.RemoveBFDIntent("novaedge", "192.168.1.1")
+	err := s.RemoveBFDIntent(testOwnerNovaedge, "192.168.1.1")
 	if err == nil {
 		t.Fatal("expected error removing non-existent BFD intent")
 	}
@@ -426,12 +441,12 @@ func TestSetBFDIntentValidation(t *testing.T) {
 		t.Error("expected error for empty owner")
 	}
 
-	err = s.SetBFDIntent("novaedge", nil)
+	err = s.SetBFDIntent(testOwnerNovaedge, nil)
 	if err == nil {
 		t.Error("expected error for nil intent")
 	}
 
-	err = s.SetBFDIntent("novaedge", &BFDIntent{PeerAddress: ""})
+	err = s.SetBFDIntent(testOwnerNovaedge, &BFDIntent{PeerAddress: ""})
 	if err == nil {
 		t.Error("expected error for empty peer address")
 	}
@@ -451,7 +466,7 @@ func TestSetAndGetOSPFIntent(t *testing.T) {
 		DeadInterval:  40,
 	}
 
-	err := s.SetOSPFIntent("novaedge", intent)
+	err := s.SetOSPFIntent(testOwnerNovaedge, intent)
 	if err != nil {
 		t.Fatalf("SetOSPFIntent failed: %v", err)
 	}
@@ -462,7 +477,7 @@ func TestSetAndGetOSPFIntent(t *testing.T) {
 	}
 
 	o := ospfs[0]
-	if o.Owner != "novaedge" {
+	if o.Owner != testOwnerNovaedge {
 		t.Errorf("expected owner 'novaedge', got %q", o.Owner)
 	}
 	if o.InterfaceName != "eth0" {
@@ -488,7 +503,7 @@ func TestSetAndGetOSPFIntent(t *testing.T) {
 func TestRemoveOSPFIntent(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetOSPFIntent("novaedge", &OSPFIntent{
+	err := s.SetOSPFIntent(testOwnerNovaedge, &OSPFIntent{
 		InterfaceName: "eth0",
 		AreaID:        "0.0.0.0",
 	})
@@ -496,7 +511,7 @@ func TestRemoveOSPFIntent(t *testing.T) {
 		t.Fatalf("SetOSPFIntent failed: %v", err)
 	}
 
-	err = s.RemoveOSPFIntent("novaedge", "eth0")
+	err = s.RemoveOSPFIntent(testOwnerNovaedge, "eth0")
 	if err != nil {
 		t.Fatalf("RemoveOSPFIntent failed: %v", err)
 	}
@@ -510,7 +525,7 @@ func TestRemoveOSPFIntent(t *testing.T) {
 func TestRemoveOSPFIntentNotFound(t *testing.T) {
 	s := newTestStore()
 
-	err := s.RemoveOSPFIntent("novaedge", "eth0")
+	err := s.RemoveOSPFIntent(testOwnerNovaedge, "eth0")
 	if err == nil {
 		t.Fatal("expected error removing non-existent OSPF intent")
 	}
@@ -524,12 +539,12 @@ func TestSetOSPFIntentValidation(t *testing.T) {
 		t.Error("expected error for empty owner")
 	}
 
-	err = s.SetOSPFIntent("novaedge", nil)
+	err = s.SetOSPFIntent(testOwnerNovaedge, nil)
 	if err == nil {
 		t.Error("expected error for nil intent")
 	}
 
-	err = s.SetOSPFIntent("novaedge", &OSPFIntent{InterfaceName: ""})
+	err = s.SetOSPFIntent(testOwnerNovaedge, &OSPFIntent{InterfaceName: ""})
 	if err == nil {
 		t.Error("expected error for empty interface name")
 	}
@@ -541,7 +556,7 @@ func TestOwnerIsolation(t *testing.T) {
 	s := newTestStore()
 
 	// Two owners set peer intents for the same neighbor address.
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -564,7 +579,7 @@ func TestOwnerIsolation(t *testing.T) {
 	}
 
 	// Remove from novaedge should not affect novanet.
-	err = s.RemovePeerIntent("novaedge", "192.168.1.1")
+	err = s.RemovePeerIntent(testOwnerNovaedge, "192.168.1.1")
 	if err != nil {
 		t.Fatalf("RemovePeerIntent failed: %v", err)
 	}
@@ -584,7 +599,7 @@ func TestOwnerIsolation(t *testing.T) {
 func TestOwnerIsolationPrefixes(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err := s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_BGP,
 	})
@@ -610,7 +625,7 @@ func TestOwnerIsolationPrefixes(t *testing.T) {
 	if len(prefixes) != 1 {
 		t.Fatalf("expected 1 prefix intent after removal, got %d", len(prefixes))
 	}
-	if prefixes[0].Owner != "novaedge" {
+	if prefixes[0].Owner != testOwnerNovaedge {
 		t.Errorf("expected remaining prefix owned by 'novaedge', got %q", prefixes[0].Owner)
 	}
 }
@@ -620,7 +635,7 @@ func TestOwnerIsolationPrefixes(t *testing.T) {
 func TestRemoveAllByOwner(t *testing.T) {
 	s := newTestStore()
 
-	owner := "novaedge"
+	owner := testOwnerNovaedge
 
 	// Add one of each intent type.
 	err := s.SetPeerIntent(owner, &PeerIntent{
@@ -712,7 +727,7 @@ func TestRemoveAllByOwnerNonExistent(t *testing.T) {
 func TestGetOwnerIntents(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -720,7 +735,7 @@ func TestGetOwnerIntents(t *testing.T) {
 		t.Fatalf("SetPeerIntent failed: %v", err)
 	}
 
-	err = s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err = s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_BGP,
 	})
@@ -728,7 +743,7 @@ func TestGetOwnerIntents(t *testing.T) {
 		t.Fatalf("SetPrefixIntent failed: %v", err)
 	}
 
-	oi := s.GetOwnerIntents("novaedge")
+	oi := s.GetOwnerIntents(testOwnerNovaedge)
 	if oi == nil {
 		t.Fatal("expected non-nil OwnerIntents")
 	}
@@ -758,7 +773,7 @@ func TestGetOwnerIntentsNonExistent(t *testing.T) {
 func TestGetAllIntents(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -778,7 +793,7 @@ func TestGetAllIntents(t *testing.T) {
 	if len(all) != 2 {
 		t.Fatalf("expected 2 owners, got %d", len(all))
 	}
-	if _, ok := all["novaedge"]; !ok {
+	if _, ok := all[testOwnerNovaedge]; !ok {
 		t.Error("expected 'novaedge' in GetAllIntents")
 	}
 	if _, ok := all["novanet"]; !ok {
@@ -791,14 +806,14 @@ func TestGetAllIntents(t *testing.T) {
 func TestGetOwnerPrefixes(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err := s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "10.0.0.0/24",
 		Protocol: v1.Protocol_PROTOCOL_BGP,
 	})
 	if err != nil {
 		t.Fatalf("SetPrefixIntent failed: %v", err)
 	}
-	err = s.SetPrefixIntent("novaedge", &PrefixIntent{
+	err = s.SetPrefixIntent(testOwnerNovaedge, &PrefixIntent{
 		Prefix:   "172.16.0.0/16",
 		Protocol: v1.Protocol_PROTOCOL_OSPF,
 	})
@@ -806,7 +821,7 @@ func TestGetOwnerPrefixes(t *testing.T) {
 		t.Fatalf("SetPrefixIntent failed: %v", err)
 	}
 
-	prefixes := s.GetOwnerPrefixes("novaedge")
+	prefixes := s.GetOwnerPrefixes(testOwnerNovaedge)
 	if len(prefixes) != 2 {
 		t.Fatalf("expected 2 prefixes, got %d", len(prefixes))
 	}
@@ -835,14 +850,14 @@ func TestGetOwnerPrefixesNonExistent(t *testing.T) {
 func TestGetOwnerPeers(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
 	if err != nil {
 		t.Fatalf("SetPeerIntent failed: %v", err)
 	}
-	err = s.SetPeerIntent("novaedge", &PeerIntent{
+	err = s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.2",
 		RemoteAS:        65002,
 	})
@@ -850,7 +865,7 @@ func TestGetOwnerPeers(t *testing.T) {
 		t.Fatalf("SetPeerIntent failed: %v", err)
 	}
 
-	peers := s.GetOwnerPeers("novaedge")
+	peers := s.GetOwnerPeers(testOwnerNovaedge)
 	if len(peers) != 2 {
 		t.Fatalf("expected 2 peers, got %d", len(peers))
 	}
@@ -881,7 +896,7 @@ func TestGetOwnerPeersNonExistent(t *testing.T) {
 func TestGetAllIntentsReturnsCopy(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 	})
@@ -892,7 +907,7 @@ func TestGetAllIntentsReturnsCopy(t *testing.T) {
 	snapshot := s.GetAllIntents()
 
 	// Mutate the snapshot.
-	for _, pi := range snapshot["novaedge"].Peers {
+	for _, pi := range snapshot[testOwnerNovaedge].Peers {
 		pi.RemoteAS = 99999
 	}
 
@@ -906,7 +921,7 @@ func TestGetAllIntentsReturnsCopy(t *testing.T) {
 func TestGetPeerIntentsReturnsCopy(t *testing.T) {
 	s := newTestStore()
 
-	err := s.SetPeerIntent("novaedge", &PeerIntent{
+	err := s.SetPeerIntent(testOwnerNovaedge, &PeerIntent{
 		NeighborAddress: "192.168.1.1",
 		RemoteAS:        65001,
 		AddressFamilies: []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST},

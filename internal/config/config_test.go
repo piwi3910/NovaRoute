@@ -54,7 +54,7 @@ func writeTestConfig(t *testing.T, cfg *Config) string {
 		t.Fatalf("marshalling test config: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("writing test config: %v", err)
 	}
 	return path
@@ -133,7 +133,7 @@ func TestLoadFromFile_MergesWithDefaults(t *testing.T) {
 		}
 	}`
 	path := filepath.Join(t.TempDir(), "partial.json")
-	if err := os.WriteFile(path, []byte(partial), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(partial), 0o600); err != nil {
 		t.Fatalf("writing partial config: %v", err)
 	}
 
@@ -174,7 +174,7 @@ func TestLoadFromFile_FileNotFound(t *testing.T) {
 
 func TestLoadFromFile_InvalidJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(path, []byte("{not valid json}"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("{not valid json}"), 0o600); err != nil {
 		t.Fatalf("writing bad config: %v", err)
 	}
 

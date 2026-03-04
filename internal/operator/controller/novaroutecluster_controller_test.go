@@ -380,27 +380,30 @@ func TestReconcile_DaemonSetSpec(t *testing.T) {
 
 	podSpec := ds.Spec.Template.Spec
 
-	// Verify hostNetwork
+	verifyPodSpecBasics(t, podSpec)
+	verifyAgentContainer(t, podSpec)
+	verifyFRRContainer(t, podSpec)
+	verifyVolumesAndTolerations(t, podSpec)
+}
+
+func verifyPodSpecBasics(t *testing.T, podSpec corev1.PodSpec) {
+	t.Helper()
 	if !podSpec.HostNetwork {
 		t.Error("expected hostNetwork: true")
 	}
-
-	// Verify dnsPolicy
 	if podSpec.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
 		t.Errorf("expected dnsPolicy ClusterFirstWithHostNet, got %q", podSpec.DNSPolicy)
 	}
-
-	// Verify terminationGracePeriodSeconds
 	if podSpec.TerminationGracePeriodSeconds == nil || *podSpec.TerminationGracePeriodSeconds != 60 {
 		t.Error("expected terminationGracePeriodSeconds: 60")
 	}
-
-	// Verify 2 containers
 	if len(podSpec.Containers) != 2 {
 		t.Fatalf("expected 2 containers, got %d", len(podSpec.Containers))
 	}
+}
 
-	// Verify agent container
+func verifyAgentContainer(t *testing.T, podSpec corev1.PodSpec) {
+	t.Helper()
 	agentContainer := podSpec.Containers[0]
 	if agentContainer.Name != "novaroute-agent" {
 		t.Errorf("expected first container name 'novaroute-agent', got %q", agentContainer.Name)
@@ -420,8 +423,10 @@ func TestReconcile_DaemonSetSpec(t *testing.T) {
 	if !hasNetAdmin {
 		t.Error("expected NET_ADMIN capability on agent container")
 	}
+}
 
-	// Verify FRR container
+func verifyFRRContainer(t *testing.T, podSpec corev1.PodSpec) {
+	t.Helper()
 	frrContainer := podSpec.Containers[1]
 	if frrContainer.Name != "frr" {
 		t.Errorf("expected second container name 'frr', got %q", frrContainer.Name)
@@ -438,8 +443,10 @@ func TestReconcile_DaemonSetSpec(t *testing.T) {
 			t.Errorf("expected %s capability on FRR container", cap)
 		}
 	}
+}
 
-	// Verify volumes
+func verifyVolumesAndTolerations(t *testing.T, podSpec corev1.PodSpec) {
+	t.Helper()
 	if len(podSpec.Volumes) != 4 {
 		t.Fatalf("expected 4 volumes, got %d", len(podSpec.Volumes))
 	}
@@ -452,8 +459,6 @@ func TestReconcile_DaemonSetSpec(t *testing.T) {
 			t.Errorf("expected volume %q", name)
 		}
 	}
-
-	// Verify tolerations (should tolerate all taints)
 	if len(podSpec.Tolerations) != 2 {
 		t.Errorf("expected 2 tolerations, got %d", len(podSpec.Tolerations))
 	}

@@ -210,6 +210,8 @@ type NovaRouteClusterList struct {
 	Items           []NovaRouteCluster `json:"items"`
 }
 
-func init() {
+// Register NovaRouteCluster types with the SchemeBuilder at package init time.
+var _ = func() bool {
 	SchemeBuilder.Register(&NovaRouteCluster{}, &NovaRouteClusterList{})
-}
+	return true
+}()

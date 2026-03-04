@@ -21,7 +21,7 @@ import (
 	"github.com/piwi3910/NovaRoute/internal/config"
 	"github.com/piwi3910/NovaRoute/internal/frr"
 	"github.com/piwi3910/NovaRoute/internal/intent"
-	"github.com/piwi3910/NovaRoute/internal/metrics"
+	metrics "github.com/piwi3910/NovaRoute/internal/metrics"
 	"github.com/piwi3910/NovaRoute/internal/policy"
 	"github.com/piwi3910/NovaRoute/internal/reconciler"
 	"github.com/piwi3910/NovaRoute/internal/server"
@@ -33,21 +33,21 @@ import (
 	grpcStatus "google.golang.org/grpc/status"
 )
 
+// frrState holds the shared FRR client state used across goroutines.
+type frrState struct {
+	mu     sync.Mutex
+	client *frr.Client
+	ready  chan struct{}
+}
+
 func main() {
 	configPath := flag.String("config", "/etc/novaroute/config.json", "path to JSON config file")
 	flag.Parse()
 
 	// Load and validate configuration.
-	cfg, err := config.LoadFromFile(*configPath)
+	cfg, err := loadAndValidateConfig(*configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: loading config: %v\n", err)
-		os.Exit(1)
-	}
-
-	config.ExpandEnvVars(cfg)
-
-	if err := config.Validate(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "error: invalid config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -70,91 +70,142 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create intent store.
+	// Create intent store and policy engine.
 	store := intent.NewStore(logger)
 	logger.Info("intent store initialized")
 
-	// Convert config owners to policy engine config.
 	policyCfg := convertPolicyConfig(cfg)
 	policyEngine := policy.NewEngine(policyCfg, logger)
 	logger.Info("policy engine initialized",
 		zap.Int("owners", len(policyCfg.Owners)),
 	)
 
-	// Connect FRR client in a background goroutine with retry loop.
-	// The VTY client connects to FRR daemon sockets in the socket directory.
-	var frrClient *frr.Client
-	var frrMu sync.Mutex
-	frrReady := make(chan struct{})
+	// Start FRR connection in background.
+	fs := &frrState{ready: make(chan struct{})}
+	go connectFRR(ctx, cfg, logger, fs)
 
+	// Create reconciler and gRPC server.
+	rec, srv, grpcServer := createServers(cfg, store, policyEngine, logger, fs)
+
+	// Wire event bus and start reconciler loop.
+	rec.SetEventPublisher(srv.EventBus())
+	rec.RunLoop(ctx, 30*time.Second)
+	logger.Info("reconciler loop started")
+
+	// Inject FRR client when ready.
+	go waitForFRR(ctx, fs, rec, srv, logger)
+
+	// Set up and start the Unix socket listener.
+	lis, socketPath, err := setupSocketListener(ctx, cfg, logger)
+	if err != nil {
+		logger.Fatal("socket setup failed", zap.Error(err))
+	}
+	defer lis.Close()
+	logger.Info("gRPC server listening", zap.String("socket", socketPath))
+
+	// Start gRPC server in background.
 	go func() {
-		metrics.SetFRRConnected(false)
-		retryInterval := time.Duration(cfg.FRR.RetryInterval) * time.Second
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			logger.Info("connecting to FRR VTY sockets",
-				zap.String("socket_dir", cfg.FRR.SocketDir),
-			)
-
-			client := frr.NewClient(cfg.FRR.SocketDir, logger)
-
-			// Verify connectivity by checking that required sockets exist
-			// and fetching the FRR version via zebra.
-			if !client.IsReady() {
-				logger.Warn("FRR VTY sockets not ready, retrying",
-					zap.Duration("retry_in", retryInterval),
-				)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(retryInterval):
-					continue
-				}
-			}
-
-			vCtx, vCancel := context.WithTimeout(ctx, time.Duration(cfg.FRR.ConnectTimeout)*time.Second)
-			version, vErr := client.GetVersion(vCtx)
-			vCancel()
-
-			if vErr != nil {
-				logger.Warn("FRR sockets exist but GetVersion failed, retrying",
-					zap.Error(vErr),
-					zap.Duration("retry_in", retryInterval),
-				)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(retryInterval):
-					continue
-				}
-			}
-
-			frrMu.Lock()
-			frrClient = client
-			frrMu.Unlock()
-			logger.Info("FRR VTY connection established",
-				zap.String("version", version),
-			)
-			close(frrReady)
-			metrics.SetFRRConnected(true)
-			return
+		if serveErr := grpcServer.Serve(lis); serveErr != nil {
+			logger.Error("gRPC server stopped", zap.Error(serveErr))
+			cancel()
 		}
 	}()
 
-	// Create reconciler. It starts with a nil FRR client and will receive
-	// the client once the FRR connection goroutine succeeds.
+	// Start Prometheus metrics HTTP server.
+	metricsServer := startMetricsServer(cfg, logger, fs, cancel)
+
+	// Wait for shutdown signal.
+	awaitShutdownSignal(ctx, logger)
+
+	// Graceful shutdown.
+	gracefulShutdown(ctx, logger, cancel, fs, srv, rec, grpcServer, metricsServer, socketPath)
+}
+
+// loadAndValidateConfig loads the configuration file, expands env vars,
+// and validates the result.
+func loadAndValidateConfig(path string) (*config.Config, error) {
+	cfg, err := config.LoadFromFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+
+	config.ExpandEnvVars(cfg)
+
+	if err := config.Validate(cfg); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// connectFRR runs the FRR VTY connection retry loop in a background goroutine.
+func connectFRR(ctx context.Context, cfg *config.Config, logger *zap.Logger, fs *frrState) {
+	metrics.SetFRRConnected(false)
+	retryInterval := time.Duration(cfg.FRR.RetryInterval) * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		logger.Info("connecting to FRR VTY sockets",
+			zap.String("socket_dir", cfg.FRR.SocketDir),
+		)
+
+		client := frr.NewClient(cfg.FRR.SocketDir, logger)
+
+		if !client.IsReady() {
+			logger.Warn("FRR VTY sockets not ready, retrying",
+				zap.Duration("retry_in", retryInterval),
+			)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(retryInterval):
+				continue
+			}
+		}
+
+		vCtx, vCancel := context.WithTimeout(ctx, time.Duration(cfg.FRR.ConnectTimeout)*time.Second)
+		version, vErr := client.GetVersion(vCtx)
+		vCancel()
+
+		if vErr != nil {
+			logger.Warn("FRR sockets exist but GetVersion failed, retrying",
+				zap.Error(vErr),
+				zap.Duration("retry_in", retryInterval),
+			)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(retryInterval):
+				continue
+			}
+		}
+
+		fs.mu.Lock()
+		fs.client = client
+		fs.mu.Unlock()
+		logger.Info("FRR VTY connection established",
+			zap.String("version", version),
+		)
+		close(fs.ready)
+		metrics.SetFRRConnected(true)
+		return
+	}
+}
+
+// createServers creates the reconciler, gRPC server, and NovaRoute server.
+func createServers(cfg *config.Config, store *intent.Store, policyEngine *policy.Engine, logger *zap.Logger, fs *frrState) (*reconciler.Reconciler, *server.Server, *grpc.Server) {
+	_ = fs // FRR client is nil initially; injected later.
+
 	bgpGlobal := &reconciler.BGPGlobalConfig{
 		LocalAS:  cfg.BGP.LocalAS,
 		RouterID: cfg.BGP.RouterID,
 	}
 	rec := reconciler.NewReconciler(store, nil, logger, bgpGlobal)
 
-	// Create gRPC server.
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(recoveryUnaryInterceptor(logger)),
 		grpc.ChainStreamInterceptor(recoveryStreamInterceptor(logger)),
@@ -168,85 +219,66 @@ func main() {
 		)
 	}
 
-	// Wire the server's event bus into the reconciler for FRR state change events.
-	// This must happen BEFORE RunLoop so early reconciliation cycles can publish events.
-	rec.SetEventPublisher(srv.EventBus())
+	return rec, srv, grpcServer
+}
 
-	// Start reconciler loop. It will skip FRR operations until the client is set.
-	rec.RunLoop(ctx, 30*time.Second)
-	logger.Info("reconciler loop started")
+// waitForFRR waits for the FRR client to be ready, then injects it into the
+// reconciler and server.
+func waitForFRR(ctx context.Context, fs *frrState, rec *reconciler.Reconciler, srv *server.Server, logger *zap.Logger) {
+	select {
+	case <-fs.ready:
+		fs.mu.Lock()
+		rec.SetFRRClient(fs.client)
+		srv.SetFRRClient(fs.client)
+		fs.mu.Unlock()
+		logger.Info("FRR client injected into reconciler and server")
 
-	// When FRR connects, update the reconciler and server with the FRR client
-	// and trigger an initial reconcile.
-	go func() {
-		select {
-		case <-frrReady:
-			frrMu.Lock()
-			rec.SetFRRClient(frrClient)
-			srv.SetFRRClient(frrClient)
-			frrMu.Unlock()
-			logger.Info("FRR client injected into reconciler and server")
+		srv.EventBus().Publish(&v1.RouteEvent{
+			Type:          v1.EventType_EVENT_TYPE_FRR_CONNECTED,
+			Detail:        "FRR VTY connection established",
+			TimestampUnix: time.Now().Unix(),
+		})
+		metrics.RecordEvent("frr_connected")
 
-			// Publish FRR connected event.
-			srv.EventBus().Publish(&v1.RouteEvent{
-				Type:          v1.EventType_EVENT_TYPE_FRR_CONNECTED,
-				Detail:        "FRR VTY connection established",
-				TimestampUnix: time.Now().Unix(),
-			})
-			metrics.RecordEvent("frr_connected")
+		rec.TriggerReconcile()
+	case <-ctx.Done():
+	}
+}
 
-			rec.TriggerReconcile()
-		case <-ctx.Done():
-		}
-	}()
-
-	// Remove stale socket file if it exists.
+// setupSocketListener prepares the Unix domain socket directory, removes stale
+// sockets, starts listening, and sets permissions.
+func setupSocketListener(ctx context.Context, cfg *config.Config, logger *zap.Logger) (net.Listener, string, error) {
 	socketPath := cfg.ListenSocket
+
 	if err := removeStaleSocket(socketPath); err != nil {
-		logger.Fatal("failed to remove stale socket", zap.Error(err))
+		return nil, socketPath, fmt.Errorf("remove stale socket: %w", err)
 	}
 
-	// Ensure the socket directory exists.
 	lastSlash := strings.LastIndex(socketPath, "/")
 	if lastSlash < 0 {
-		logger.Fatal("invalid listen_socket path: must contain a directory separator", zap.String("path", socketPath))
+		return nil, socketPath, fmt.Errorf("invalid listen_socket path: must contain a directory separator")
 	}
 	socketDir := socketPath[:lastSlash]
 	if socketDir != "" {
-		if mkdirErr := os.MkdirAll(socketDir, 0o755); mkdirErr != nil {
-			logger.Fatal("failed to create socket directory",
-				zap.String("dir", socketDir),
-				zap.Error(mkdirErr),
-			)
+		if mkdirErr := os.MkdirAll(socketDir, 0o750); mkdirErr != nil {
+			return nil, socketPath, fmt.Errorf("create socket directory %s: %w", socketDir, mkdirErr)
 		}
 	}
 
-	// Start listening on Unix socket.
 	lis, err := (&net.ListenConfig{}).Listen(ctx, "unix", socketPath)
 	if err != nil {
-		logger.Fatal("failed to listen on Unix socket",
-			zap.String("path", socketPath),
-			zap.Error(err),
-		)
+		return nil, socketPath, fmt.Errorf("listen on Unix socket %s: %w", socketPath, err)
 	}
-	defer lis.Close()
 
-	// Set socket permissions to allow other containers on the node to connect.
-	if chmodErr := os.Chmod(socketPath, 0o666); chmodErr != nil {
+	if chmodErr := os.Chmod(socketPath, 0o600); chmodErr != nil {
 		logger.Warn("failed to set socket permissions", zap.Error(chmodErr))
 	}
 
-	logger.Info("gRPC server listening", zap.String("socket", socketPath))
+	return lis, socketPath, nil
+}
 
-	// Start gRPC server in background.
-	go func() {
-		if serveErr := grpcServer.Serve(lis); serveErr != nil {
-			logger.Error("gRPC server stopped", zap.Error(serveErr))
-			cancel()
-		}
-	}()
-
-	// Start Prometheus metrics HTTP server.
+// startMetricsServer creates and starts the Prometheus metrics HTTP server.
+func startMetricsServer(cfg *config.Config, logger *zap.Logger, fs *frrState, cancel context.CancelFunc) *http.Server {
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", promhttp.Handler())
 	metricsMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -254,9 +286,9 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	metricsMux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		frrMu.Lock()
-		client := frrClient
-		frrMu.Unlock()
+		fs.mu.Lock()
+		client := fs.client
+		fs.mu.Unlock()
 		if client != nil && client.IsReady() {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ready"))
@@ -280,7 +312,11 @@ func main() {
 		}
 	}()
 
-	// Wait for shutdown signal.
+	return metricsServer
+}
+
+// awaitShutdownSignal blocks until a SIGTERM/SIGINT or context cancellation.
+func awaitShutdownSignal(ctx context.Context, logger *zap.Logger) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
@@ -290,13 +326,25 @@ func main() {
 	case <-ctx.Done():
 		logger.Info("context cancelled")
 	}
+}
 
-	// Graceful shutdown.
+// gracefulShutdown orchestrates a clean shutdown of all components.
+func gracefulShutdown(
+	_ context.Context,
+	logger *zap.Logger,
+	cancel context.CancelFunc,
+	fs *frrState,
+	srv *server.Server,
+	rec *reconciler.Reconciler,
+	grpcServer *grpc.Server,
+	metricsServer *http.Server,
+	socketPath string,
+) {
 	logger.Info("shutting down gracefully")
 
 	// Publish FRR disconnected event before shutdown.
-	frrMu.Lock()
-	if frrClient != nil {
+	fs.mu.Lock()
+	if fs.client != nil {
 		srv.EventBus().Publish(&v1.RouteEvent{
 			Type:          v1.EventType_EVENT_TYPE_FRR_DISCONNECTED,
 			Detail:        "FRR VTY connection closing (agent shutdown)",
@@ -304,7 +352,7 @@ func main() {
 		})
 		metrics.RecordEvent("frr_disconnected")
 	}
-	frrMu.Unlock()
+	fs.mu.Unlock()
 
 	cancel()
 
@@ -312,11 +360,7 @@ func main() {
 	rec.WaitForStop()
 	logger.Info("reconciler loop stopped")
 
-	// Withdraw all applied routing state from FRR before tearing down
-	// the gRPC server and FRR connection. This ensures BGP peers,
-	// advertised prefixes, BFD sessions, and OSPF interfaces are
-	// cleanly removed so upstream routers see graceful withdrawal
-	// rather than abrupt session drops.
+	// Withdraw all applied routing state from FRR.
 	withdrawCtx, withdrawCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if withdrawErr := rec.WithdrawAll(withdrawCtx); withdrawErr != nil {
 		logger.Warn("WithdrawAll completed with errors", zap.Error(withdrawErr))
@@ -338,14 +382,14 @@ func main() {
 	logger.Info("metrics server stopped")
 
 	// Close FRR client.
-	frrMu.Lock()
-	if frrClient != nil {
-		if closeErr := frrClient.Close(); closeErr != nil {
+	fs.mu.Lock()
+	if fs.client != nil {
+		if closeErr := fs.client.Close(); closeErr != nil {
 			logger.Warn("FRR client close error", zap.Error(closeErr))
 		}
 		logger.Info("FRR client closed")
 	}
-	frrMu.Unlock()
+	fs.mu.Unlock()
 
 	// Clean up socket.
 	_ = os.Remove(socketPath)

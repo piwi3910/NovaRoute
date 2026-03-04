@@ -33,10 +33,12 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
-func init() {
+// Register schemes at package init time without using an init function.
+var _ = func() bool {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(novaroutev1alpha1.AddToScheme(scheme))
-}
+	return true
+}()
 
 func main() {
 	var metricsAddr string

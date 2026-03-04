@@ -6,6 +6,9 @@ import (
 	"testing"
 )
 
+// testPeerAddr is a commonly used test IP address.
+const testPeerAddr = "10.0.0.1"
+
 // ---------------------------------------------------------------------------
 // BGP neighbor JSON parsing tests
 // ---------------------------------------------------------------------------
@@ -190,8 +193,8 @@ func TestParseBFDPeersJSON_SinglePeer(t *testing.T) {
 	}
 
 	p := result[0]
-	if p.PeerAddress != "10.0.0.1" {
-		t.Errorf("PeerAddress = %q, want %q", p.PeerAddress, "10.0.0.1")
+	if p.PeerAddress != testPeerAddr {
+		t.Errorf("PeerAddress = %q, want %q", p.PeerAddress, testPeerAddr)
 	}
 	if p.Interface != "eth0" {
 		t.Errorf("Interface = %q, want %q", p.Interface, "eth0")
@@ -289,8 +292,8 @@ func TestParseOSPFNeighborsJSON_SingleNeighbor(t *testing.T) {
 	}
 
 	nbr := result[0]
-	if nbr.NeighborID != "10.0.0.1" {
-		t.Errorf("NeighborID = %q, want %q", nbr.NeighborID, "10.0.0.1")
+	if nbr.NeighborID != testPeerAddr {
+		t.Errorf("NeighborID = %q, want %q", nbr.NeighborID, testPeerAddr)
 	}
 	if nbr.Address != "192.168.1.1" {
 		t.Errorf("Address = %q, want %q", nbr.Address, "192.168.1.1")
@@ -364,8 +367,8 @@ func TestParseOSPFNeighborsJSON_MultipleNeighbors(t *testing.T) {
 		return result[i].NeighborID < result[j].NeighborID
 	})
 
-	if result[0].NeighborID != "10.0.0.1" {
-		t.Errorf("result[0].NeighborID = %q, want %q", result[0].NeighborID, "10.0.0.1")
+	if result[0].NeighborID != testPeerAddr {
+		t.Errorf("result[0].NeighborID = %q, want %q", result[0].NeighborID, testPeerAddr)
 	}
 	if result[0].State != "Full" {
 		t.Errorf("result[0].State = %q, want %q", result[0].State, "Full")
@@ -396,8 +399,8 @@ func TestParseOSPFNeighborsJSON_FallbackAddress(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("got %d neighbors, want 1", len(result))
 	}
-	if result[0].Address != "10.0.0.1" {
-		t.Errorf("Address = %q, want %q (fallback to neighbor ID)", result[0].Address, "10.0.0.1")
+	if result[0].Address != testPeerAddr {
+		t.Errorf("Address = %q, want %q (fallback to neighbor ID)", result[0].Address, testPeerAddr)
 	}
 }
 
@@ -422,8 +425,8 @@ func TestParseOSPFNeighborsJSON_MultipleEntriesPerNeighbor(t *testing.T) {
 
 	// Both should have the same neighbor ID.
 	for i, nbr := range result {
-		if nbr.NeighborID != "10.0.0.1" {
-			t.Errorf("result[%d].NeighborID = %q, want %q", i, nbr.NeighborID, "10.0.0.1")
+		if nbr.NeighborID != testPeerAddr {
+			t.Errorf("result[%d].NeighborID = %q, want %q", i, nbr.NeighborID, testPeerAddr)
 		}
 	}
 }
@@ -477,8 +480,8 @@ func TestParseBGPNeighborsJSON_ViaGetBGPNeighbors(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("got %d neighbors, want 1", len(result))
 	}
-	if result[0].Address != "10.0.0.1" {
-		t.Errorf("Address = %q, want %q", result[0].Address, "10.0.0.1")
+	if result[0].Address != testPeerAddr {
+		t.Errorf("Address = %q, want %q", result[0].Address, testPeerAddr)
 	}
 }
 
@@ -499,8 +502,8 @@ func TestParseBFDPeersJSON_ViaGetBFDPeers(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("got %d peers, want 1", len(result))
 	}
-	if result[0].PeerAddress != "10.0.0.1" {
-		t.Errorf("PeerAddress = %q, want %q", result[0].PeerAddress, "10.0.0.1")
+	if result[0].PeerAddress != testPeerAddr {
+		t.Errorf("PeerAddress = %q, want %q", result[0].PeerAddress, testPeerAddr)
 	}
 }
 
@@ -525,7 +528,7 @@ func TestParseOSPFNeighborsJSON_ViaGetOSPFNeighbors(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("got %d neighbors, want 1", len(result))
 	}
-	if result[0].NeighborID != "10.0.0.1" {
-		t.Errorf("NeighborID = %q, want %q", result[0].NeighborID, "10.0.0.1")
+	if result[0].NeighborID != testPeerAddr {
+		t.Errorf("NeighborID = %q, want %q", result[0].NeighborID, testPeerAddr)
 	}
 }

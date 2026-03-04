@@ -14,12 +14,18 @@ import (
 	v1 "github.com/piwi3910/NovaRoute/api/v1"
 	"github.com/piwi3910/NovaRoute/internal/frr"
 	"github.com/piwi3910/NovaRoute/internal/intent"
-	"github.com/piwi3910/NovaRoute/internal/metrics"
+	metrics "github.com/piwi3910/NovaRoute/internal/metrics"
 	"github.com/piwi3910/NovaRoute/internal/policy"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+// Status state constants used when enriching GetStatus responses.
+const (
+	stateConfigured = "configured"
+	statePending    = "pending"
 )
 
 // ReconcilerInterface is satisfied by anything that can trigger a reconciliation
@@ -305,45 +311,55 @@ func (s *Server) ConfigureBGP(ctx context.Context, req *v1.ConfigureBGPRequest) 
 // Peer management
 // ---------------------------------------------------------------------------
 
+// validateApplyPeerRequest validates the fields of an ApplyPeerRequest, returning
+// a gRPC status error if any field is invalid.
+func validateApplyPeerRequest(req *v1.ApplyPeerRequest) error {
+	if req.GetOwner() == "" {
+		return status.Error(codes.InvalidArgument, "owner must not be empty")
+	}
+	if req.GetToken() == "" {
+		return status.Error(codes.InvalidArgument, "token must not be empty")
+	}
+	peer := req.GetPeer()
+	if peer == nil {
+		return status.Error(codes.InvalidArgument, "peer must not be nil")
+	}
+	if peer.GetNeighborAddress() == "" {
+		return status.Error(codes.InvalidArgument, "peer neighbor_address must not be empty")
+	}
+	if net.ParseIP(peer.GetNeighborAddress()) == nil {
+		return status.Errorf(codes.InvalidArgument, "peer neighbor_address is not a valid IP address: %s", peer.GetNeighborAddress())
+	}
+	if peer.GetSourceAddress() != "" && net.ParseIP(peer.GetSourceAddress()) == nil {
+		return status.Errorf(codes.InvalidArgument, "peer source_address is not a valid IP address: %s", peer.GetSourceAddress())
+	}
+	if (peer.GetKeepalive() > 0) != (peer.GetHoldTime() > 0) {
+		return status.Error(codes.InvalidArgument, "keepalive and hold_time must both be set or both be zero")
+	}
+	if peer.GetHoldTime() > 0 && peer.GetHoldTime() < 3 {
+		return status.Errorf(codes.InvalidArgument, "hold_time must be at least 3 seconds, got %d", peer.GetHoldTime())
+	}
+	if peer.GetKeepalive() > 0 && peer.GetHoldTime() < 3*peer.GetKeepalive() {
+		return status.Errorf(codes.InvalidArgument, "hold_time (%d) must be at least 3x keepalive (%d) per RFC 4271", peer.GetHoldTime(), peer.GetKeepalive())
+	}
+	if peer.GetRemoteAs() == 0 {
+		return status.Error(codes.InvalidArgument, "peer remote_as must not be zero")
+	}
+	return nil
+}
+
 // ApplyPeer creates or updates a BGP peer intent for the calling owner.
 func (s *Server) ApplyPeer(ctx context.Context, req *v1.ApplyPeerRequest) (*v1.ApplyPeerResponse, error) {
 	start := time.Now()
 	defer func() { metrics.ObserveGRPCDuration("ApplyPeer", time.Since(start).Seconds()) }()
 
+	if err := validateApplyPeerRequest(req); err != nil {
+		return nil, err
+	}
+
 	owner := req.GetOwner()
 	token := req.GetToken()
 	peer := req.GetPeer()
-
-	if owner == "" {
-		return nil, status.Error(codes.InvalidArgument, "owner must not be empty")
-	}
-	if token == "" {
-		return nil, status.Error(codes.InvalidArgument, "token must not be empty")
-	}
-	if peer == nil {
-		return nil, status.Error(codes.InvalidArgument, "peer must not be nil")
-	}
-	if peer.GetNeighborAddress() == "" {
-		return nil, status.Error(codes.InvalidArgument, "peer neighbor_address must not be empty")
-	}
-	if net.ParseIP(peer.GetNeighborAddress()) == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "peer neighbor_address is not a valid IP address: %s", peer.GetNeighborAddress())
-	}
-	if peer.GetSourceAddress() != "" && net.ParseIP(peer.GetSourceAddress()) == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "peer source_address is not a valid IP address: %s", peer.GetSourceAddress())
-	}
-	if (peer.GetKeepalive() > 0) != (peer.GetHoldTime() > 0) {
-		return nil, status.Error(codes.InvalidArgument, "keepalive and hold_time must both be set or both be zero")
-	}
-	if peer.GetHoldTime() > 0 && peer.GetHoldTime() < 3 {
-		return nil, status.Errorf(codes.InvalidArgument, "hold_time must be at least 3 seconds, got %d", peer.GetHoldTime())
-	}
-	if peer.GetKeepalive() > 0 && peer.GetHoldTime() < 3*peer.GetKeepalive() {
-		return nil, status.Errorf(codes.InvalidArgument, "hold_time (%d) must be at least 3x keepalive (%d) per RFC 4271", peer.GetHoldTime(), peer.GetKeepalive())
-	}
-	if peer.GetRemoteAs() == 0 {
-		return nil, status.Error(codes.InvalidArgument, "peer remote_as must not be zero")
-	}
 
 	// Validate token.
 	if err := s.policy.ValidateToken(owner, token); err != nil {
@@ -1086,7 +1102,25 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 		}
 	}
 
-	// Build peer status list, merging intent config with real FRR state.
+	// Build response from intents merged with FRR state.
+	resp.Peers = s.buildPeerStatusList(allIntents, frrClient, bgpStates, bfdStates)
+	resp.Prefixes = buildPrefixStatusList(allIntents)
+	resp.BfdSessions = s.buildBFDStatusList(allIntents, frrClient, bfdStates)
+	resp.OspfInterfaces = buildOSPFStatusList(allIntents, frrClient, ospfStates)
+	resp.FrrStatus = s.buildFRRStatus(ctx, frrClient, frrConnectedAt)
+
+	return resp, nil
+}
+
+// buildPeerStatusList constructs the peer status list by merging intent config
+// with real FRR state.
+func (s *Server) buildPeerStatusList(
+	allIntents map[string]*intent.OwnerIntents,
+	frrClient *frr.Client,
+	bgpStates map[string]*frr.BGPNeighborState,
+	bfdStates map[string]*frr.BFDPeerState,
+) []*v1.PeerStatus {
+	var peers []*v1.PeerStatus
 	for owner, oi := range allIntents {
 		for _, p := range oi.Peers {
 			ps := &v1.PeerStatus{
@@ -1097,9 +1131,9 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				Description:     p.Description,
 			}
 			if frrClient != nil {
-				ps.State = "configured" // Intent exists but peer not in FRR yet
+				ps.State = stateConfigured
 			} else {
-				ps.State = "pending" // FRR not connected, state unknown
+				ps.State = statePending
 			}
 			if bgp, ok := bgpStates[p.NeighborAddress]; ok {
 				ps.State = bgp.State
@@ -1107,7 +1141,6 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				ps.PrefixesReceived = bgp.PrefixesReceived
 				ps.PrefixesSent = bgp.PrefixesSent
 			}
-			// Enrich with BFD status if available.
 			if p.BFDEnabled {
 				if bfd, ok := bfdStates[p.NeighborAddress]; ok {
 					ps.BfdStatus = bfd.Status
@@ -1117,14 +1150,18 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 			} else {
 				ps.BfdStatus = "disabled"
 			}
-			resp.Peers = append(resp.Peers, ps)
+			peers = append(peers, ps)
 		}
 	}
+	return peers
+}
 
-	// Build prefix status list.
+// buildPrefixStatusList constructs the prefix status list from intents.
+func buildPrefixStatusList(allIntents map[string]*intent.OwnerIntents) []*v1.PrefixStatus {
+	var prefixes []*v1.PrefixStatus
 	for owner, oi := range allIntents {
 		for _, p := range oi.Prefixes {
-			resp.Prefixes = append(resp.Prefixes, &v1.PrefixStatus{
+			prefixes = append(prefixes, &v1.PrefixStatus{
 				Prefix:   p.Prefix,
 				Protocol: p.Protocol,
 				Owner:    owner,
@@ -1132,10 +1169,19 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 			})
 		}
 	}
+	return prefixes
+}
 
-	// Build BFD session status list, merging with real FRR state.
-	// Track which addresses are covered to avoid duplicates.
+// buildBFDStatusList constructs the BFD session status list, merging explicit
+// BFD intents and auto-linked BFD sessions from peers with BFDEnabled=true.
+func (s *Server) buildBFDStatusList(
+	allIntents map[string]*intent.OwnerIntents,
+	frrClient *frr.Client,
+	bfdStates map[string]*frr.BFDPeerState,
+) []*v1.BFDSessionStatus {
+	var sessions []*v1.BFDSessionStatus
 	bfdCovered := make(map[string]bool)
+
 	for owner, oi := range allIntents {
 		for _, b := range oi.BFD {
 			bs := &v1.BFDSessionStatus{
@@ -1146,18 +1192,19 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				DetectMultiplier: b.DetectMultiplier,
 			}
 			if frrClient != nil {
-				bs.State = "configured"
+				bs.State = stateConfigured
 			} else {
-				bs.State = "pending"
+				bs.State = statePending
 			}
 			if bfd, ok := bfdStates[b.PeerAddress]; ok {
 				bs.State = bfd.Status
 				bs.Uptime = bfd.Uptime
 			}
-			resp.BfdSessions = append(resp.BfdSessions, bs)
+			sessions = append(sessions, bs)
 			bfdCovered[b.PeerAddress] = true
 		}
 	}
+
 	// Include auto-linked BFD sessions from peers with BFDEnabled=true.
 	for owner, oi := range allIntents {
 		for _, p := range oi.Peers {
@@ -1172,20 +1219,30 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				DetectMultiplier: p.BFDDetectMultiplier,
 			}
 			if frrClient != nil {
-				bs.State = "configured"
+				bs.State = stateConfigured
 			} else {
-				bs.State = "pending"
+				bs.State = statePending
 			}
 			if bfd, ok := bfdStates[p.NeighborAddress]; ok {
 				bs.State = bfd.Status
 				bs.Uptime = bfd.Uptime
 			}
-			resp.BfdSessions = append(resp.BfdSessions, bs)
+			sessions = append(sessions, bs)
 			bfdCovered[p.NeighborAddress] = true
 		}
 	}
 
-	// Build OSPF interface status list, merging with real FRR state.
+	return sessions
+}
+
+// buildOSPFStatusList constructs the OSPF interface status list, merging with
+// real FRR state.
+func buildOSPFStatusList(
+	allIntents map[string]*intent.OwnerIntents,
+	frrClient *frr.Client,
+	ospfStates map[string]*frr.OSPFNeighborState,
+) []*v1.OSPFInterfaceStatus {
+	var interfaces []*v1.OSPFInterfaceStatus
 	for owner, oi := range allIntents {
 		for _, o := range oi.OSPF {
 			os := &v1.OSPFInterfaceStatus{
@@ -1195,43 +1252,44 @@ func (s *Server) GetStatus(ctx context.Context, req *v1.GetStatusRequest) (*v1.G
 				Cost:          o.Cost,
 			}
 			if frrClient != nil {
-				os.State = "configured" // Intent exists but not in FRR yet
+				os.State = stateConfigured
 			} else {
-				os.State = "pending" // FRR not connected, state unknown
+				os.State = statePending
 			}
-			// Count OSPF neighbors on this interface and get state.
 			nbrCount := uint32(0)
 			for _, nbr := range ospfStates {
 				if nbr.Interface == o.InterfaceName {
-					if os.State == "configured" {
+					if os.State == stateConfigured {
 						os.State = nbr.State
 					}
 					nbrCount++
 				}
 			}
 			os.NeighborCount = nbrCount
-			resp.OspfInterfaces = append(resp.OspfInterfaces, os)
+			interfaces = append(interfaces, os)
 		}
 	}
+	return interfaces
+}
 
-	// Build real FRR status.
-	resp.FrrStatus = &v1.FRRStatus{
+// buildFRRStatus constructs the FRR status section of the GetStatus response.
+func (s *Server) buildFRRStatus(ctx context.Context, frrClient *frr.Client, frrConnectedAt time.Time) *v1.FRRStatus {
+	frrStatus := &v1.FRRStatus{
 		Version:   "unknown",
 		Connected: false,
 	}
 	if frrClient != nil {
-		resp.FrrStatus.Connected = frrClient.IsReady()
-		if resp.FrrStatus.Connected {
+		frrStatus.Connected = frrClient.IsReady()
+		if frrStatus.Connected {
 			if version, err := frrClient.GetVersion(ctx); err == nil {
-				resp.FrrStatus.Version = version
+				frrStatus.Version = version
 			} else {
 				s.logger.Warn("GetStatus: failed to query FRR version", zap.Error(err))
 			}
-			resp.FrrStatus.Uptime = time.Since(frrConnectedAt).Truncate(time.Second).String()
+			frrStatus.Uptime = time.Since(frrConnectedAt).Truncate(time.Second).String()
 		}
 	}
-
-	return resp, nil
+	return frrStatus
 }
 
 // StreamEvents implements the server-streaming RPC that pushes RouteEvents
@@ -1278,6 +1336,8 @@ func (s *Server) StreamEvents(req *v1.StreamEventsRequest, stream grpc.ServerStr
 // NOTE: This helper is duplicated across intent, reconciler, and server packages.
 func protocolString(p v1.Protocol) string {
 	switch p {
+	case v1.Protocol_PROTOCOL_UNSPECIFIED:
+		return strings.ToLower(p.String())
 	case v1.Protocol_PROTOCOL_BGP:
 		return "bgp"
 	case v1.Protocol_PROTOCOL_OSPF:
@@ -1323,6 +1383,8 @@ func (s *Server) updateOwnerPrefixGauge(owner string) {
 	ospfCount := 0
 	for _, p := range oi.Prefixes {
 		switch p.Protocol {
+		case v1.Protocol_PROTOCOL_UNSPECIFIED:
+			// Unspecified protocol; skip counting.
 		case v1.Protocol_PROTOCOL_BGP:
 			bgpCount++
 		case v1.Protocol_PROTOCOL_OSPF:
