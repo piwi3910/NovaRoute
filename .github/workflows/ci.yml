@@ -151,7 +151,7 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
       - name: Run gitleaks
@@ -213,7 +213,7 @@ jobs:
           cache: true
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.1
+        run: GOTOOLCHAIN=auto go install gotest.tools/gotestsum@latest
 
       - name: Run unit tests
         run: |
