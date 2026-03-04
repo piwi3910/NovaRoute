@@ -13,15 +13,24 @@ concurrency:
 permissions:
   contents: read
   checks: write
+  pull-requests: write
   packages: write
 
+env:
+  COVERAGE_THRESHOLD: "20"
+
+# =============================================================================
+# Phase 1: Code Quality
+# =============================================================================
 jobs:
-  lint:
-    name: Lint Code
+  phase1-lint-go:
+    name: "Phase 1: Go Lint"
     runs-on: arc-runner-novaroute
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -29,29 +38,167 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Run gofmt
+      - name: Run gofmt check
         run: |
           if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-            echo "Code is not formatted. Run 'gofmt -s -w .'"
+            echo "::error::Code is not formatted. Run 'gofmt -s -w .'"
             gofmt -s -l .
             exit 1
           fi
 
-      - name: Run go vet
-        run: go vet ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          args: ${{ github.event_name == 'pull_request' && '--new-from-rev=origin/main' || '' }}
 
       - name: Check go mod tidy
         run: |
           go mod tidy
           if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
-            echo "go.mod or go.sum is not tidy. Run 'go mod tidy'"
+            echo "::error::go.mod or go.sum is not tidy. Run 'go mod tidy'"
             git diff go.mod go.sum
             exit 1
           fi
 
-  test:
-    name: Unit Tests
+  phase1-lint-helm:
+    name: "Phase 1: Helm Lint"
     runs-on: arc-runner-novaroute
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint charts/novaroute-operator
+
+      - name: Helm template
+        run: helm template novaroute-operator charts/novaroute-operator
+
+  phase1-gate:
+    name: "Phase 1: Gate"
+    runs-on: arc-runner-novaroute
+    needs: [phase1-lint-go, phase1-lint-helm]
+    if: always()
+    steps:
+      - name: Check phase 1 results
+        env:
+          LINT_GO: ${{ needs.phase1-lint-go.result }}
+          LINT_HELM: ${{ needs.phase1-lint-helm.result }}
+        run: |
+          results=("$LINT_GO" "$LINT_HELM")
+          for r in "${results[@]}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::Phase 1 failed (status: $r)"
+              exit 1
+            fi
+          done
+          echo "Phase 1 passed"
+
+  # =============================================================================
+  # Phase 2: Compliance
+  # =============================================================================
+  phase2-docs:
+    name: "Phase 2: Documentation Build"
+    runs-on: arc-runner-novaroute
+    needs: [phase1-gate]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build documentation
+        run: |
+          sudo apt-get update && sudo apt-get install -y ruby-full build-essential
+          cd docs && sudo gem install bundler && sudo bundle install && bundle exec jekyll build
+
+  phase2-docs-freshness:
+    name: "Phase 2: Docs Freshness"
+    runs-on: arc-runner-novaroute
+    needs: [phase1-gate]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check docs freshness
+        run: |
+          CODE_CHANGED=$(git diff --name-only origin/main...HEAD -- '*.go' 'cmd/' 'internal/' 'api/' | wc -l)
+          DOCS_CHANGED=$(git diff --name-only origin/main...HEAD -- 'docs/' | wc -l)
+          if [ "$CODE_CHANGED" -gt 0 ] && [ "$DOCS_CHANGED" -eq 0 ]; then
+            echo "::error::Code changed but no documentation updates. Update docs/ before merging."
+            exit 1
+          fi
+          echo "Documentation is up to date"
+
+  phase2-security:
+    name: "Phase 2: Security Scan"
+    runs-on: arc-runner-novaroute
+    needs: [phase1-gate]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Run govulncheck
+        run: |
+          GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
+      - name: Run Trivy filesystem scan
+        run: trivy fs --severity CRITICAL,HIGH --exit-code 1 .
+
+  phase2-gate:
+    name: "Phase 2: Gate"
+    runs-on: arc-runner-novaroute
+    needs: [phase1-gate, phase2-docs, phase2-docs-freshness, phase2-security]
+    if: always()
+    steps:
+      - name: Check phase 2 results
+        env:
+          PHASE1_GATE: ${{ needs.phase1-gate.result }}
+          DOCS: ${{ needs.phase2-docs.result }}
+          DOCS_FRESHNESS: ${{ needs.phase2-docs-freshness.result }}
+          SECURITY: ${{ needs.phase2-security.result }}
+        run: |
+          if [[ "$PHASE1_GATE" != "success" ]]; then
+            echo "::error::Phase 1 gate did not pass (status: $PHASE1_GATE)"
+            exit 1
+          fi
+          for r in "$DOCS" "$DOCS_FRESHNESS" "$SECURITY"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::Phase 2 failed (status: $r)"
+              exit 1
+            fi
+          done
+          echo "Phase 2 passed"
+
+  # =============================================================================
+  # Phase 3: Unit Testing
+  # =============================================================================
+  phase3-test-go:
+    name: "Phase 3: Go Tests"
+    runs-on: arc-runner-novaroute
+    needs: [phase2-gate]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,25 +212,74 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Run unit tests
-        run: CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Install gotestsum
+        run: GOTOOLCHAIN=auto go install gotest.tools/gotestsum@latest
 
-      - name: Display coverage
+      - name: Run unit tests
+        run: |
+          CGO_ENABLED=1 gotestsum \
+            --junitfile test-results.xml \
+            --format pkgname \
+            -- -race -coverprofile=coverage.out -covermode=atomic -timeout=10m ./...
+
+      - name: Check coverage threshold
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: ${COVERAGE}%"
           echo "## Test Coverage: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
 
+          THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
+          if awk "BEGIN {exit !($COVERAGE < $THRESHOLD)}"; then
+            echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi
+          echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
+
+      - name: Upload test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Go Test Results"
+          path: test-results.xml
+          reporter: java-junit
+          fail-on-error: false
+
       - name: Upload coverage artifact
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: coverage.out
           retention-days: 7
 
-  build:
-    name: Build Binaries
+  phase3-gate:
+    name: "Phase 3: Gate"
     runs-on: arc-runner-novaroute
+    needs: [phase2-gate, phase3-test-go]
+    if: always()
+    steps:
+      - name: Check phase 3 results
+        env:
+          PHASE2_GATE: ${{ needs.phase2-gate.result }}
+          TEST_GO: ${{ needs.phase3-test-go.result }}
+        run: |
+          if [[ "$PHASE2_GATE" != "success" ]]; then
+            echo "::error::Phase 2 gate did not pass (status: $PHASE2_GATE)"
+            exit 1
+          fi
+          if [[ "$TEST_GO" == "failure" || "$TEST_GO" == "cancelled" ]]; then
+            echo "::error::Phase 3 failed (status: $TEST_GO)"
+            exit 1
+          fi
+          echo "Phase 3 passed"
+
+  # =============================================================================
+  # Phase 4: Building
+  # =============================================================================
+  phase4-build-go:
+    name: "Phase 4: Build ${{ matrix.binary.name }}"
+    runs-on: arc-runner-novaroute
+    needs: [phase3-gate]
     strategy:
       matrix:
         binary:
@@ -113,9 +309,10 @@ jobs:
           path: bin/${{ matrix.binary.name }}
           retention-days: 7
 
-  docker-build:
-    name: Docker Build Test
+  phase4-docker-test:
+    name: "Phase 4: Docker Build Test"
     runs-on: arc-runner-novaroute
+    needs: [phase3-gate]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -123,42 +320,62 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build novaroute-agent image
+      - name: Build novaroute-agent image (no push)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: false
           tags: novaroute-agent:test
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  security:
-    name: Security Scan
-    runs-on: arc-runner-novaroute
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-          cache: true
-
-      - name: Run govulncheck
+      - name: Install Trivy
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
 
-  build-and-push:
-    name: Build and Push Images
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [lint, test, build, docker-build, security]
+      - name: Trivy container scan
+        run: trivy image --severity CRITICAL,HIGH --exit-code 1 novaroute-agent:test
+
+  phase4-gate:
+    name: "Phase 4: Gate"
     runs-on: arc-runner-novaroute
+    needs: [phase3-gate, phase4-build-go, phase4-docker-test]
+    if: always()
+    steps:
+      - name: Check phase 4 results
+        env:
+          PHASE3_GATE: ${{ needs.phase3-gate.result }}
+          BUILD_GO: ${{ needs.phase4-build-go.result }}
+          DOCKER_TEST: ${{ needs.phase4-docker-test.result }}
+        run: |
+          if [[ "$PHASE3_GATE" != "success" ]]; then
+            echo "::error::Phase 3 gate did not pass (status: $PHASE3_GATE)"
+            exit 1
+          fi
+          for r in "$BUILD_GO" "$DOCKER_TEST"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::Phase 4 failed (status: $r)"
+              exit 1
+            fi
+          done
+          echo "Phase 4 passed"
+
+  # =============================================================================
+  # Phase 5: Deployment
+  # =============================================================================
+  phase5-push:
+    name: "Phase 5: Push to GHCR"
+    runs-on: arc-runner-novaroute
+    needs: [phase4-gate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -167,41 +384,39 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push novaroute-agent
+      - name: Build and push novaroute-operator
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/piwi3910/novaroute-agent:sha-${{ github.sha }}
-            ghcr.io/piwi3910/novaroute-agent:latest
+            ghcr.io/piwi3910/novaroute/novaroute-operator:sha-${{ github.sha }}
+            ghcr.io/piwi3910/novaroute/novaroute-operator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
+      - name: Trigger CT pipeline
+        if: success()
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          event-type: deployment-complete
+
+  # =============================================================================
+  # Status Check (for branch protection)
+  # =============================================================================
   status-check:
     name: Status Check
     runs-on: arc-runner-novaroute
-    needs: [lint, test, build, docker-build, security]
+    needs: [phase4-gate]
     if: always()
     steps:
-      - name: Check all jobs status
+      - name: Check all phases
         env:
-          LINT_RESULT: ${{ needs.lint.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          DOCKER_RESULT: ${{ needs.docker-build.result }}
-          SECURITY_RESULT: ${{ needs.security.result }}
+          PHASE4_GATE: ${{ needs.phase4-gate.result }}
         run: |
-          results=(
-            "$LINT_RESULT"
-            "$TEST_RESULT"
-            "$BUILD_RESULT"
-            "$DOCKER_RESULT"
-            "$SECURITY_RESULT"
-          )
-          for r in "${results[@]}"; do
-            if [[ "$r" != "success" && "$r" != "skipped" ]]; then
-              echo "One or more jobs failed (found status: $r)"
-              exit 1
-            fi
-          done
-          echo "All jobs passed"
+          if [[ "$PHASE4_GATE" != "success" ]]; then
+            echo "::error::Pipeline failed (phase4-gate status: $PHASE4_GATE)"
+            exit 1
+          fi
+          echo "All pipeline phases passed"
