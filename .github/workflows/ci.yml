@@ -103,6 +103,7 @@ jobs:
     name: "Phase 2: Documentation Build"
     runs-on: arc-runner-novaroute
     needs: [phase1-gate]
+    if: ${{ !cancelled() && needs.phase1-gate.result == 'success' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -116,7 +117,7 @@ jobs:
     name: "Phase 2: Docs Freshness"
     runs-on: arc-runner-novaroute
     needs: [phase1-gate]
-    if: github.event_name == 'pull_request'
+    if: ${{ !cancelled() && needs.phase1-gate.result == 'success' && github.event_name == 'pull_request' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -137,6 +138,7 @@ jobs:
     name: "Phase 2: Security Scan"
     runs-on: arc-runner-novaroute
     needs: [phase1-gate]
+    if: ${{ !cancelled() && needs.phase1-gate.result == 'success' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -199,6 +201,7 @@ jobs:
     name: "Phase 3: Go Tests"
     runs-on: arc-runner-novaroute
     needs: [phase2-gate]
+    if: ${{ !cancelled() && needs.phase2-gate.result == 'success' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -280,6 +283,7 @@ jobs:
     name: "Phase 4: Build ${{ matrix.binary.name }}"
     runs-on: arc-runner-novaroute
     needs: [phase3-gate]
+    if: ${{ !cancelled() && needs.phase3-gate.result == 'success' }}
     strategy:
       matrix:
         binary:
@@ -313,6 +317,7 @@ jobs:
     name: "Phase 4: Docker Build Test"
     runs-on: arc-runner-novaroute
     needs: [phase3-gate]
+    if: ${{ !cancelled() && needs.phase3-gate.result == 'success' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -369,7 +374,7 @@ jobs:
     name: "Phase 5: Push to GHCR"
     runs-on: arc-runner-novaroute
     needs: [phase4-gate]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: ${{ !cancelled() && needs.phase4-gate.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
