@@ -1,3 +1,4 @@
+// Package frr provides a client for managing FRR (Free Range Routing) configuration.
 package frr
 
 import (

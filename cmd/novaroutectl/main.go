@@ -431,7 +431,7 @@ func newDeregisterCmd() *cobra.Command {
 				WithdrawAll: withdrawAll,
 			})
 			if err != nil {
-				return fmt.Errorf("Deregister RPC failed: %w", err)
+				return fmt.Errorf("deregister RPC failed: %w", err)
 			}
 
 			fmt.Printf("Deregistered: owner=%s withdraw_all=%v\n", owner, withdrawAll)

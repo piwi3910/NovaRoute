@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"context"
 	"testing"
 
 	v1 "github.com/piwi3910/NovaRoute/api/v1"
@@ -452,7 +453,7 @@ func TestApplyIntentUnknownType(t *testing.T) {
 	store := intent.NewStore(logger)
 	r := NewReconciler(store, nil, logger, nil)
 
-	err := r.ApplyIntent(nil, "unknown", nil)
+	err := r.ApplyIntent(context.TODO(), "unknown", nil)
 	if err == nil {
 		t.Error("expected error for unknown intent type")
 	}
@@ -464,22 +465,22 @@ func TestApplyIntentWrongType(t *testing.T) {
 	r := NewReconciler(store, nil, logger, nil)
 
 	// Pass a string instead of *intent.PeerIntent.
-	err := r.ApplyIntent(nil, "peer", "not-a-peer")
+	err := r.ApplyIntent(context.TODO(), "peer", "not-a-peer")
 	if err == nil {
 		t.Error("expected error for wrong value type")
 	}
 
-	err = r.ApplyIntent(nil, "prefix", "not-a-prefix")
+	err = r.ApplyIntent(context.TODO(), "prefix", "not-a-prefix")
 	if err == nil {
 		t.Error("expected error for wrong value type")
 	}
 
-	err = r.ApplyIntent(nil, "bfd", "not-a-bfd")
+	err = r.ApplyIntent(context.TODO(), "bfd", "not-a-bfd")
 	if err == nil {
 		t.Error("expected error for wrong value type")
 	}
 
-	err = r.ApplyIntent(nil, "ospf", "not-an-ospf")
+	err = r.ApplyIntent(context.TODO(), "ospf", "not-an-ospf")
 	if err == nil {
 		t.Error("expected error for wrong value type")
 	}
@@ -490,7 +491,7 @@ func TestRemoveIntentUnknownType(t *testing.T) {
 	store := intent.NewStore(logger)
 	r := NewReconciler(store, nil, logger, nil)
 
-	err := r.RemoveIntent(nil, "unknown", "key")
+	err := r.RemoveIntent(context.TODO(), "unknown", "key")
 	if err == nil {
 		t.Error("expected error for unknown intent type")
 	}
@@ -501,22 +502,22 @@ func TestRemoveIntentNotFound(t *testing.T) {
 	store := intent.NewStore(logger)
 	r := NewReconciler(store, nil, logger, nil)
 
-	err := r.RemoveIntent(nil, "peer", "10.0.0.99")
+	err := r.RemoveIntent(context.TODO(), "peer", "10.0.0.99")
 	if err == nil {
 		t.Error("expected error when removing non-existent peer")
 	}
 
-	err = r.RemoveIntent(nil, "prefix", "bgp:10.0.0.0/24")
+	err = r.RemoveIntent(context.TODO(), "prefix", "bgp:10.0.0.0/24")
 	if err == nil {
 		t.Error("expected error when removing non-existent prefix")
 	}
 
-	err = r.RemoveIntent(nil, "bfd", "10.0.0.99")
+	err = r.RemoveIntent(context.TODO(), "bfd", "10.0.0.99")
 	if err == nil {
 		t.Error("expected error when removing non-existent BFD")
 	}
 
-	err = r.RemoveIntent(nil, "ospf", "eth99")
+	err = r.RemoveIntent(context.TODO(), "ospf", "eth99")
 	if err == nil {
 		t.Error("expected error when removing non-existent OSPF")
 	}

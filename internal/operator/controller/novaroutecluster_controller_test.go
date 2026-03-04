@@ -107,13 +107,13 @@ func TestReconcile_CreatesAllResources(t *testing.T) {
 	}
 
 	// First reconcile adds the finalizer
-	result, err := r.Reconcile(ctx, req)
+	_, err := r.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("first reconcile failed: %v", err)
 	}
 
 	// Second reconcile creates all resources
-	result, err = r.Reconcile(ctx, req)
+	result, err := r.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("second reconcile failed: %v", err)
 	}
