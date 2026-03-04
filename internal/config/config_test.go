@@ -379,7 +379,7 @@ func TestExpandEnvVars_ReplacesTokens(t *testing.T) {
 func TestExpandEnvVars_UnsetVarBecomesEmpty(t *testing.T) {
 	// Ensure the variable is not set.
 	t.Setenv("NOVAROUTE_UNSET_VAR_TEST", "")
-	os.Unsetenv("NOVAROUTE_UNSET_VAR_TEST")
+	_ = os.Unsetenv("NOVAROUTE_UNSET_VAR_TEST")
 
 	cfg := validConfig()
 	cfg.Owners["novaedge"] = OwnerConfig{ //nolint:gosec // Test fixture, not real credentials

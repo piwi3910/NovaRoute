@@ -1163,6 +1163,9 @@ func (r *Reconciler) applyPrefixIntent(ctx context.Context, p *intent.PrefixInte
 			zap.String("owner", p.Owner),
 		)
 
+	case v1.Protocol_PROTOCOL_UNSPECIFIED:
+		return fmt.Errorf("unspecified protocol for prefix %s", p.Prefix)
+
 	default:
 		return fmt.Errorf("unsupported protocol %v for prefix %s", p.Protocol, p.Prefix)
 	}

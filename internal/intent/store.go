@@ -138,6 +138,8 @@ func protocolString(p v1.Protocol) string {
 		return "bgp"
 	case v1.Protocol_PROTOCOL_OSPF:
 		return "ospf"
+	case v1.Protocol_PROTOCOL_UNSPECIFIED:
+		return "unknown"
 	default:
 		return "unknown"
 	}

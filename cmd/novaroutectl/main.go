@@ -71,7 +71,7 @@ func getStatus(ownerFilter string) (*v1.GetStatusResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -152,8 +152,8 @@ func newPeersCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "NEIGHBOR\tREMOTE AS\tSTATE\tOWNER\tPFX RECV\tPFX SENT\tBFD\tUPTIME")
-			fmt.Fprintln(w, "--------\t---------\t-----\t-----\t--------\t--------\t---\t------")
+			_, _ = fmt.Fprintln(w, "NEIGHBOR\tREMOTE AS\tSTATE\tOWNER\tPFX RECV\tPFX SENT\tBFD\tUPTIME")
+			_, _ = fmt.Fprintln(w, "--------\t---------\t-----\t-----\t--------\t--------\t---\t------")
 
 			for _, p := range resp.Peers {
 				bfd := "no"
@@ -167,7 +167,7 @@ func newPeersCmd() *cobra.Command {
 				if uptime == "" {
 					uptime = "-"
 				}
-				fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%d\t%d\t%s\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%d\t%d\t%s\t%s\n",
 					p.NeighborAddress,
 					p.RemoteAs,
 					p.State,
@@ -205,12 +205,12 @@ func newPrefixesCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "PREFIX\tPROTOCOL\tSTATE\tOWNER")
-			fmt.Fprintln(w, "------\t--------\t-----\t-----")
+			_, _ = fmt.Fprintln(w, "PREFIX\tPROTOCOL\tSTATE\tOWNER")
+			_, _ = fmt.Fprintln(w, "------\t--------\t-----\t-----")
 
 			for _, p := range resp.Prefixes {
 				proto := protocolName(p.Protocol)
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 					p.Prefix,
 					proto,
 					p.State,
@@ -244,15 +244,15 @@ func newBFDCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "PEER ADDRESS\tSTATE\tOWNER\tMIN RX (ms)\tMIN TX (ms)\tDETECT MULT\tUPTIME")
-			fmt.Fprintln(w, "------------\t-----\t-----\t-----------\t-----------\t-----------\t------")
+			_, _ = fmt.Fprintln(w, "PEER ADDRESS\tSTATE\tOWNER\tMIN RX (ms)\tMIN TX (ms)\tDETECT MULT\tUPTIME")
+			_, _ = fmt.Fprintln(w, "------------\t-----\t-----\t-----------\t-----------\t-----------\t------")
 
 			for _, b := range resp.BfdSessions {
 				uptime := b.Uptime
 				if uptime == "" {
 					uptime = "-"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n",
 					b.PeerAddress,
 					b.State,
 					b.Owner,
@@ -289,11 +289,11 @@ func newOSPFCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "INTERFACE\tAREA\tSTATE\tOWNER\tNEIGHBORS\tCOST")
-			fmt.Fprintln(w, "---------\t----\t-----\t-----\t---------\t----")
+			_, _ = fmt.Fprintln(w, "INTERFACE\tAREA\tSTATE\tOWNER\tNEIGHBORS\tCOST")
+			_, _ = fmt.Fprintln(w, "---------\t----\t-----\t-----\t---------\t----")
 
 			for _, o := range resp.OspfInterfaces {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\n",
 					o.InterfaceName,
 					o.AreaId,
 					o.State,
@@ -317,6 +317,8 @@ func protocolName(p v1.Protocol) string {
 		return "BGP"
 	case v1.Protocol_PROTOCOL_OSPF:
 		return "OSPF"
+	case v1.Protocol_PROTOCOL_UNSPECIFIED:
+		return "unknown"
 	default:
 		return "unknown"
 	}
@@ -335,7 +337,7 @@ func newEventsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			stream, err := client.StreamEvents(context.Background(), &v1.StreamEventsRequest{
 				OwnerFilter: ownerFilter,
@@ -378,7 +380,7 @@ func newRegisterCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -420,7 +422,7 @@ func newDeregisterCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -460,7 +462,7 @@ func newConfigureBGPCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -508,7 +510,7 @@ func newApplyPeerCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -603,7 +605,7 @@ func newRemovePeerCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -645,7 +647,7 @@ func newAdvertiseCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -706,7 +708,7 @@ func newWithdrawCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -754,7 +756,7 @@ func newEnableBFDCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -802,7 +804,7 @@ func newDisableBFDCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -844,7 +846,7 @@ func newEnableOSPFCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -895,7 +897,7 @@ func newDisableOSPFCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()

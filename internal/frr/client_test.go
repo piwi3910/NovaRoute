@@ -121,7 +121,7 @@ func TestIsReady(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Close()
+		_ = f.Close()
 	}
 
 	if !client.IsReady() {
