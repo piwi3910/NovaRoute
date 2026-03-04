@@ -18,7 +18,7 @@ NovaRoute agent reads a JSON configuration file at startup. The default path is 
 |-------|------|---------|----------|-------------|
 | `listen_socket` | string | `/run/novaroute/novaroute.sock` | No | Unix domain socket path for the gRPC API. Clients connect here. |
 | `log_level` | string | `info` | No | Logging verbosity. Valid values: `debug`, `info`, `warn`, `error`. |
-| `metrics_address` | string | `:9102` | No | Listen address for the Prometheus metrics HTTP server. Serves `/metrics`, `/healthz`, and `/readyz`. Note: the code default is `:9100`, but the recommended production value is `:9102` to avoid conflicts with node_exporter. |
+| `metrics_address` | string | `:9100` | No | Listen address for the Prometheus metrics HTTP server. Serves `/metrics`, `/healthz`, and `/readyz`. The code default is `:9100`; consider using `:9102` in production to avoid conflicts with node_exporter. |
 | `disconnect_grace_period` | int | `0` | No | Seconds to wait before withdrawing an owner's intents after their gRPC connection drops. Set to 0 to withdraw immediately. A value of 30 gives clients time to reconnect after transient failures. |
 
 ### FRR Connection Settings (`frr.*`)
@@ -33,8 +33,8 @@ NovaRoute agent reads a JSON configuration file at startup. The default path is 
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
-| `bgp.local_as` | uint32 | -- | **Yes** | Local autonomous system number. Used in `router bgp <AS>`. Must be greater than 0. Can be overridden at runtime via the `ConfigureBGP` RPC or the `NOVAROUTE_BGP_LOCAL_AS` environment variable. |
-| `bgp.router_id` | string | -- | **Yes** | BGP router identifier in IPv4 address format (e.g., `10.0.0.1`). Used in `bgp router-id <ID>`. Supports `${VAR}` environment variable expansion (e.g., `${NODE_IP}`). Can be overridden by `NOVAROUTE_BGP_ROUTER_ID`. |
+| `bgp.local_as` | uint32 | `0` | No | Local autonomous system number. Used in `router bgp <AS>`. If not set at startup, BGP can be configured at runtime via the `ConfigureBGP` RPC or the `NOVAROUTE_BGP_LOCAL_AS` environment variable. |
+| `bgp.router_id` | string | `""` | No | BGP router identifier in IPv4 address format (e.g., `10.0.0.1`). Used in `bgp router-id <ID>`. Supports `${VAR}` environment variable expansion (e.g., `${NODE_IP}`). If not set at startup, can be configured at runtime via `ConfigureBGP` RPC or `NOVAROUTE_BGP_ROUTER_ID`. |
 
 ### Owner Definitions (`owners.*`)
 
@@ -206,9 +206,9 @@ Any attempt to advertise a subnet (e.g., `10.0.0.0/24`) is rejected with a polic
 ### `subnet`
 
 Restricts the owner to advertising subnet routes only:
-- Prefix lengths from `/8` through `/28` are allowed
+- **IPv4**: prefix lengths from `/1` through `/31` are allowed (host routes `/32` are rejected)
+- **IPv6**: prefix lengths from `/1` through `/127` are allowed (host routes `/128` are rejected)
 - Host routes (`/32` for IPv4, `/128` for IPv6) are rejected
-- Very broad prefixes (shorter than `/8`) are also rejected
 
 **Typical use case**: NovaNet advertising pod CIDR ranges and node subnets. These are always subnets, never individual host addresses.
 
@@ -246,7 +246,7 @@ No restrictions on prefix length. The owner can advertise any valid CIDR prefix.
 | Type | Allowed IPv4 Lengths | Allowed IPv6 Lengths | Typical Owner |
 |------|---------------------|---------------------|---------------|
 | `host_only` | `/32` only | `/128` only | NovaEdge (VIPs) |
-| `subnet` | `/8` through `/28` | `/8` through `/128` (excluding `/128`) | NovaNet (pod CIDRs) |
+| `subnet` | `/1` through `/31` (not `/32`) | `/1` through `/127` (not `/128`) | NovaNet (pod CIDRs) |
 | `any` | All | All | Admin |
 
 ---
@@ -294,8 +294,7 @@ The agent validates the configuration at startup and exits with an error if any 
 | `frr.socket_dir` must not be empty | `frr.socket_dir must not be empty` |
 | `frr.connect_timeout` must be positive | `frr.connect_timeout must be positive, got <value>` |
 | `frr.retry_interval` must be positive | `frr.retry_interval must be positive, got <value>` |
-| `bgp.local_as` must be greater than 0 | `bgp.local_as must be greater than 0` |
-| `bgp.router_id` must be a valid IP address | `bgp.router_id "<value>" is not a valid IP address` |
+| `bgp.router_id` must be a valid IP address (if set) | `bgp.router_id "<value>" is not a valid IP address` |
 | At least one owner must be configured | `at least one owner must be configured` |
 | Each owner's token must not be empty | `owner "<name>": token must not be empty` |
 | Each owner's prefix type must be valid | `owner "<name>": unknown allowed_prefixes.type "<value>"` |

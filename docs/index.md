@@ -21,14 +21,14 @@ Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer 
 - **Unified routing stack** -- BGP, BFD, and OSPF managed through a single control plane per node, eliminating port conflicts and peer explosion
 - **Intent-based API** -- Clients declare what they want (e.g., "advertise 10.0.0.1/32 via BGP"), not how to achieve it; NovaRoute handles the FRR translation
 - **Policy-safe by default** -- Token authentication, prefix type validation (host_only, subnet, any), CIDR restrictions, and cross-owner conflict detection
-- **14 gRPC RPCs** -- Full lifecycle management: Register, Deregister, ConfigureBGP, ApplyPeer, RemovePeer, AdvertisePrefix, WithdrawPrefix, EnableBFD, DisableBFD, EnableOSPF, DisableOSPF, GetStatus, StreamEvents
+- **13 gRPC RPCs** -- Full lifecycle management: Register, Deregister, ConfigureBGP, ApplyPeer, RemovePeer, AdvertisePrefix, WithdrawPrefix, EnableBFD, DisableBFD, EnableOSPF, DisableOSPF, GetStatus, StreamEvents
 - **Intent-based reconciler** -- 30-second periodic sync plus triggered reconciliation with desired-vs-applied diffing and equality checks
 - **Real-time event streaming** -- 15 event types with per-owner and per-type filtering, delivered over server-streaming gRPC
 - **Prometheus metrics** -- gRPC call duration, policy violations, intent counts, and active sessions exported on `:9102`
 - **Health check endpoints** -- `/healthz` (liveness) and `/readyz` (FRR connectivity check) for Kubernetes probes
 - **Ephemeral state, durable routing** -- In-memory intent store with FRR graceful restart ensures zero traffic disruption across agent restarts
 - **CLI tooling** -- `novaroutectl` provides both read-only inspection and full write operations against the agent
-- **Production-ready deployment** -- Kubernetes DaemonSet with agent + FRR sidecar, hostNetwork, multi-arch Docker images (amd64/arm64)
+- **Production-ready deployment** -- Kubernetes DaemonSet with agent + FRR sidecar, hostNetwork, multi-arch Docker images (amd64/arm64), and optional Kubernetes operator for CRD-based configuration
 - **Graceful shutdown** -- Withdraws all prefixes, BFD sessions, OSPF interfaces, and peers on SIGTERM with a 10-second timeout
 
 ---
@@ -52,7 +52,7 @@ Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer 
 | **Source** | [github.com/piwi3910/NovaRoute](https://github.com/piwi3910/NovaRoute) |
 | **Docker Image** | `ghcr.io/piwi3910/novaroute/novaroute-agent` (linux/amd64, linux/arm64) |
 | **FRR Image** | `ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1` |
-| **Status** | Core routing features complete -- BGP, BFD, OSPF, reconciliation, policy engine, event streaming |
+| **Status** | Core routing features complete -- BGP, BFD, OSPF, reconciliation, policy engine, event streaming, Kubernetes operator |
 
 ---
 

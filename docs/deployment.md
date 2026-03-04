@@ -127,6 +127,8 @@ data:
     }
 ```
 
+Note: The `bgp` section is optional in the config. If omitted, BGP must be configured at runtime via the `ConfigureBGP` RPC (e.g., by NovaEdge during reconciliation). The actual `deploy/configmap.yaml` in the repository omits the `bgp` section for this reason.
+
 **Configuration fields:**
 
 | Field | Description |
@@ -173,7 +175,7 @@ data:
     babeld=no
     sharpd=no
     pbrd=no
-    bfdd=no
+    bfdd=yes
     fabricd=no
     vrrpd=no
     pathd=no
@@ -201,6 +203,7 @@ data:
 The key daemons enabled are:
 - **zebra** -- Always runs; manages the kernel routing table.
 - **bgpd** -- BGP routing daemon, listening on localhost only (`-p 0` disables the TCP listener since peers connect directly).
+- **bfdd** -- BFD daemon for sub-second failure detection on BGP sessions.
 - **ospfd** -- OSPF routing daemon.
 - **mgmtd** -- Management daemon for the northbound gRPC interface.
 
@@ -424,7 +427,7 @@ kubectl -n nova-system logs -l app=novaroute-agent -c frr
 The agent exposes an HTTP health endpoint at `/healthz` on port 9102:
 
 - **Liveness probe** -- Restarts the agent container if it becomes unresponsive (checked every 15s after a 10s initial delay, 3 failures trigger restart).
-- **Readiness probe** -- Removes the pod from service if the agent is not ready (checked every 10s after a 5s initial delay).
+- **Readiness probe** -- Removes the pod from service if the agent is not ready (checked every 10s after a 5s initial delay). Note: the DaemonSet manifest above uses `/healthz` for both probes; for a stricter readiness check that verifies FRR connectivity, use `/readyz` instead.
 
 ### Prometheus Metrics
 

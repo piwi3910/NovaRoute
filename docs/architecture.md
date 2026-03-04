@@ -58,7 +58,7 @@ NovaRoute is designed as a single point of control for all routing protocols on 
 |                        |                                  |
 |  +---------------------v---------------------+           |
 |  |              FRR Daemon                     |          |
-|  |  (bgpd, ospfd, zebra, mgmtd)              |          |
+|  |  (bgpd, bfdd, ospfd, zebra, mgmtd)        |          |
 |  |                                             |          |
 |  |  TCP 179 --- BGP sessions --- Routers      |          |
 |  |  BFD ------- Link detection ------ ^       |          |
@@ -73,7 +73,7 @@ NovaRoute is designed as a single point of control for all routing protocols on 
 
 ### gRPC Server
 
-The gRPC server listens on a Unix domain socket at `/run/novaroute/novaroute.sock` and implements the `RouteControl` service with 14 RPCs. It handles:
+The gRPC server listens on a Unix domain socket at `/run/novaroute/novaroute.sock` and implements the `RouteControl` service with 13 RPCs. It handles:
 
 - **Session management** -- `Register` and `Deregister` for owner lifecycle
 - **BGP configuration** -- `ConfigureBGP` for dynamic AS/router-id changes at runtime
@@ -177,15 +177,21 @@ The codebase follows Go's standard project layout with internal packages:
 | **metrics** | `internal/metrics/` | Prometheus metric definitions and registration -- gRPC call duration, policy violations, intent counts, active sessions |
 | **policy** | `internal/policy/` | Ownership and prefix policy engine -- token auth, prefix type validation, CIDR restrictions, conflict detection |
 | **reconciler** | `internal/reconciler/` | Desired-to-applied state reconciliation -- periodic and triggered sync, equality checks, FRR state monitoring, event publishing |
-| **server** | `internal/server/` | gRPC service handlers for all 14 RPCs, event bus (pub-sub) for StreamEvents, and HTTP health/metrics endpoints |
+| **server** | `internal/server/` | gRPC service handlers for all 13 RPCs, event bus (pub-sub) for StreamEvents, and HTTP health/metrics endpoints |
+| **operator** | `internal/operator/` | Kubernetes operator reconciler for CRD-based routing configuration |
 
 Additional top-level directories:
 
 | Directory | Contents |
 |-----------|----------|
 | `api/v1/` | Protobuf service definition (`novaroute.proto`) and generated Go code |
+| `api/v1alpha1/` | CRD API types for the Kubernetes operator |
 | `cmd/novaroute-agent/` | Main entry point for the agent daemon |
+| `cmd/novaroute-operator/` | Main entry point for the Kubernetes operator |
+| `cmd/novaroute-test/` | Integration test binary |
 | `cmd/novaroutectl/` | CLI tool for inspecting and controlling the agent |
+| `config/` | Kubernetes CRD and RBAC manifests |
+| `charts/` | Helm charts for deployment |
 | `deploy/` | Kubernetes manifests -- DaemonSet (`daemonset.yaml`) and ConfigMap (`configmap.yaml`) |
 
 ---
@@ -277,6 +283,7 @@ NovaRoute checks for FRR readiness by looking for these sockets in the configure
 | `bgpd.vty` | bgpd | BGP session and route management |
 | `ospfd.vty` | ospfd | OSPF adjacency management |
 | `bfdd.vty` | bfdd | BFD session management |
+| `mgmtd.vty` | mgmtd | Management daemon for FRR northbound interface |
 
 The `/readyz` health endpoint returns HTTP 200 only when the required VTY sockets are present and accessible.
 
@@ -352,9 +359,11 @@ During the restart window (default: 120 seconds for FRR graceful restart), the k
 
 On SIGTERM, NovaRoute performs a graceful shutdown sequence with a 10-second timeout:
 
-1. Withdraws all advertised prefixes
-2. Disables all BFD sessions
-3. Removes all OSPF interface configurations
-4. Removes all BGP peers
+1. Publishes an FRR disconnected event
+2. Cancels the main context
+3. Waits for the reconciler to stop
+4. Calls WithdrawAll() to remove all peers, prefixes, BFD sessions, and OSPF interfaces from FRR
 5. Stops the gRPC server
-6. Stops the reconciler
+6. Stops the metrics server
+7. Closes the FRR client
+8. Removes the Unix socket

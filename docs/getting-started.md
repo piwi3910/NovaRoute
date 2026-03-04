@@ -110,7 +110,7 @@ kubectl apply -f deploy/daemonset.yaml
 Verify the pods are running:
 
 ```bash
-kubectl get pods -l app=novaroute -o wide
+kubectl get pods -l app=novaroute-agent -o wide
 ```
 
 ---
@@ -160,10 +160,10 @@ sudo bin/novaroute-agent --config=/etc/novaroute/config.json
 The agent will:
 1. Load and validate the configuration
 2. Wait for FRR VTY sockets (`zebra.vty`, `bgpd.vty`) to appear in `/run/frr/`
-3. Configure the BGP instance in FRR (`router bgp 65011`, `bgp router-id 192.168.100.10`)
-4. Start the gRPC server on `/run/novaroute/novaroute.sock`
-5. Start the reconciler (30-second periodic sync)
-6. Start the Prometheus metrics server on `:9102`
+3. Start the gRPC server on `/run/novaroute/novaroute.sock`
+4. Start the reconciler (30-second periodic sync)
+5. Start the Prometheus metrics server on `:9102`
+6. On the first reconciliation cycle, configure BGP in FRR if `bgp.local_as` and `bgp.router_id` are set in config (or when a client calls `ConfigureBGP`)
 
 ### Step 3: Verify the Agent is Running
 

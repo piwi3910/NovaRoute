@@ -207,23 +207,23 @@ readinessProbe:
 
 ## Event Streaming
 
-The `StreamEvents` gRPC RPC provides a real-time stream of routing state changes. There are 15 event types available:
+The `StreamEvents` gRPC RPC provides a real-time stream of routing state changes. The event types are defined in the `EventType` proto enum:
 
-- `EVENT_TYPE_PEER_UP`
-- `EVENT_TYPE_PEER_DOWN`
-- `EVENT_TYPE_PEER_ADDED`
-- `EVENT_TYPE_PEER_REMOVED`
-- `EVENT_TYPE_PREFIX_ADDED`
-- `EVENT_TYPE_PREFIX_REMOVED`
-- `EVENT_TYPE_BFD_SESSION_UP`
-- `EVENT_TYPE_BFD_SESSION_DOWN`
-- `EVENT_TYPE_BFD_SESSION_ADDED`
-- `EVENT_TYPE_BFD_SESSION_REMOVED`
-- `EVENT_TYPE_OSPF_NEIGHBOR_UP`
-- `EVENT_TYPE_OSPF_NEIGHBOR_DOWN`
-- `EVENT_TYPE_OSPF_INTERFACE_ADDED`
-- `EVENT_TYPE_OSPF_INTERFACE_REMOVED`
-- `EVENT_TYPE_RECONCILE_ERROR`
+- `EVENT_TYPE_UNSPECIFIED` -- Default/unset value
+- `EVENT_TYPE_PEER_UP` -- BGP peer session reached Established state
+- `EVENT_TYPE_PEER_DOWN` -- BGP peer session dropped
+- `EVENT_TYPE_PREFIX_ADVERTISED` -- Prefix was successfully advertised to FRR
+- `EVENT_TYPE_PREFIX_WITHDRAWN` -- Prefix was withdrawn from FRR
+- `EVENT_TYPE_BFD_UP` -- BFD session reached Up state
+- `EVENT_TYPE_BFD_DOWN` -- BFD session went Down
+- `EVENT_TYPE_OSPF_NEIGHBOR_UP` -- OSPF neighbor adjacency formed
+- `EVENT_TYPE_OSPF_NEIGHBOR_DOWN` -- OSPF neighbor adjacency lost
+- `EVENT_TYPE_FRR_CONNECTED` -- Agent connected to FRR daemon
+- `EVENT_TYPE_FRR_DISCONNECTED` -- Agent lost connection to FRR daemon
+- `EVENT_TYPE_OWNER_REGISTERED` -- An owner registered a session
+- `EVENT_TYPE_OWNER_DEREGISTERED` -- An owner deregistered
+- `EVENT_TYPE_POLICY_VIOLATION` -- A request was rejected by prefix policy
+- `EVENT_TYPE_BGP_CONFIG_CHANGED` -- BGP global configuration (AS/router-id) changed
 
 ### Filtering
 
@@ -231,8 +231,8 @@ You can filter the event stream by owner and/or event type in the `StreamEventsR
 
 ```protobuf
 message StreamEventsRequest {
-  string owner = 1;           // optional: only events for this owner
-  repeated string types = 2;  // optional: only these event types
+  string owner_filter = 1;           // optional: only events for this owner
+  repeated string event_types = 2;   // optional: only these event types
 }
 ```
 
@@ -246,7 +246,7 @@ novaroutectl events
 novaroutectl events --owner=my-controller
 
 # Stream only peer events
-novaroutectl events --type=EVENT_TYPE_PEER_UP --type=EVENT_TYPE_PEER_DOWN
+novaroutectl events --types=PEER_UP,PEER_DOWN
 ```
 
 If a subscriber cannot consume events fast enough, events are dropped and counted by the `novaroute_events_dropped_total` metric.

@@ -27,8 +27,8 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ## Clone and Build
 
 ```bash
-git clone https://github.com/<org>/novaroute.git
-cd novaroute
+git clone https://github.com/piwi3910/NovaRoute.git
+cd NovaRoute
 make build
 ```
 
@@ -90,20 +90,26 @@ This builds a container image suitable for deployment as a Kubernetes DaemonSet 
 ## Project Structure
 
 ```
-novaroute/
+NovaRoute/
 ├── cmd/
 │   ├── novaroute-agent/    # Agent entry point
+│   ├── novaroute-operator/ # Kubernetes operator entry point
+│   ├── novaroute-test/     # Integration test binary
 │   └── novaroutectl/       # CLI entry point
 ├── api/
-│   └── proto/              # Protobuf service definitions
+│   ├── v1/                 # Protobuf service definitions and generated Go code
+│   └── v1alpha1/           # CRD API types for the Kubernetes operator
 ├── internal/
 │   ├── config/             # Configuration loading and validation
 │   ├── frr/                # FRR client (vtysh interaction)
 │   ├── intent/             # Intent store and management
 │   ├── metrics/            # Prometheus metrics registration
 │   ├── policy/             # Policy engine (ownership, CIDR checks)
+│   ├── operator/           # Kubernetes operator reconciler
 │   ├── reconciler/         # Reconciliation loop (intent -> FRR state)
 │   └── server/             # gRPC server implementation
+├── config/                 # Kubernetes CRD and RBAC manifests
+├── charts/                 # Helm charts
 ├── bin/                    # Build output directory
 ├── docs/                   # Documentation (this site)
 ├── Makefile
@@ -133,7 +139,7 @@ novaroute/
 
 ### Table-Driven Tests
 
-NovaRoute uses table-driven tests extensively:
+NovaRoute uses table-driven tests extensively. The following is an illustrative example of the pattern (hold time validation is performed inline in the gRPC handlers, not as a standalone function):
 
 ```go
 func TestValidateHoldTime(t *testing.T) {

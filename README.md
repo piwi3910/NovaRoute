@@ -29,7 +29,7 @@ NovaRoute is a unified routing control service that centralizes BGP, BFD, and OS
                            │ vtysh
               ┌────────────▼───────────────┐
               │       FRR Daemon           │
-              │   BGP · BFD · OSPF         │
+              │  BGP · BFD · OSPF · bfdd   │
               └────────────────────────────┘
 ```
 
@@ -42,7 +42,7 @@ NovaRoute is a unified routing control service that centralizes BGP, BFD, and OS
 - **Multi-protocol** — BGP (peers, prefixes, dynamic AS, soft-reconfigure, graceful-restart, max-prefix, prefix-lists), BFD (single-hop detection), OSPF (per-interface areas)
 - **Intent-based** — Clients declare desired state; the reconciler diffs and applies to FRR
 - **Multi-tenant** — Ownership model with per-client tokens, prefix-type validation, and conflict detection
-- **Observable** — Prometheus metrics at `:9102`, real-time event streaming, health endpoints (`/healthz`, `/readyz`)
+- **Observable** — Prometheus metrics at `:9100` (default; configurable via `metrics_address`), real-time event streaming, health endpoints (`/healthz`, `/readyz`)
 - **Production-ready** — Graceful shutdown, FRR state monitoring, periodic reconciliation, error recovery
 - **Multi-arch** — Docker images for `linux/amd64` and `linux/arm64` published to GHCR
 
@@ -64,7 +64,7 @@ novaroutectl register --owner myapp --token secret
 
 # Add a BGP peer
 novaroutectl apply-peer --owner myapp --token secret \
-  --address 10.0.0.254 --remote-as 65001
+  --neighbor 10.0.0.254 --remote-as 65001
 
 # Advertise a prefix
 novaroutectl advertise --owner myapp --token secret \
@@ -105,9 +105,11 @@ NovaRoute reads a JSON config file (default: `/etc/novaroute/config.json`):
     }
   },
   "log_level": "info",
-  "metrics_address": ":9102"
+  "metrics_address": ":9100"
 }
 ```
+
+Note: the code default for `metrics_address` is `:9100`. The recommended production value is `:9102` to avoid conflicts with node_exporter.
 
 Environment variable overrides: `NOVAROUTE_BGP_LOCAL_AS`, `NOVAROUTE_BGP_ROUTER_ID`. Token values support `${ENV_VAR}` expansion.
 
@@ -128,13 +130,13 @@ See the [Configuration Guide](https://piwi3910.github.io/NovaRoute/configuration
 │                  FRR Client (vtysh)             │
 │                       │                         │
 │                   FRR Daemon                    │
-│              (bgpd, ospfd, zebra)              │
+│          (bgpd, bfdd, ospfd, zebra)            │
 └────────────────────────────────────────────────┘
 ```
 
 | Component | Role |
 |-----------|------|
-| **gRPC Server** | 14 RPCs over Unix socket — register, peers, prefixes, BFD, OSPF, status, events |
+| **gRPC Server** | 13 RPCs over Unix socket — register, peers, prefixes, BFD, OSPF, status, events |
 | **Policy Engine** | Token auth, prefix-type validation, CIDR restrictions, cross-owner conflict check |
 | **Intent Store** | Thread-safe in-memory store of desired routing state per owner |
 | **Reconciler** | Diffs desired vs applied state, generates FRR commands, monitors FRR state |
@@ -146,18 +148,25 @@ See the [Architecture Guide](https://piwi3910.github.io/NovaRoute/architecture) 
 
 ```
 NovaRoute/
-├── api/v1/                  # Protobuf/gRPC service definition
+├── api/
+│   ├── v1/                  # Protobuf/gRPC service definition
+│   └── v1alpha1/            # CRD API types for the Kubernetes operator
 ├── cmd/
 │   ├── novaroute-agent/     # Main agent binary
+│   ├── novaroute-operator/  # Kubernetes operator binary
+│   ├── novaroute-test/      # Integration test binary
 │   └── novaroutectl/        # CLI tool
 ├── internal/
 │   ├── config/              # JSON config loading + env var expansion
 │   ├── frr/                 # FRR vtysh client (BGP, BFD, OSPF)
 │   ├── intent/              # In-memory intent store
 │   ├── metrics/             # Prometheus metrics
+│   ├── operator/            # Kubernetes operator reconciler
 │   ├── policy/              # Ownership + prefix policy engine
 │   ├── reconciler/          # State reconciliation + FRR monitoring
 │   └── server/              # gRPC handlers + event streaming
+├── config/                  # Kubernetes CRD and RBAC manifests
+├── charts/                  # Helm charts
 ├── deploy/                  # Kubernetes manifests (DaemonSet, ConfigMaps)
 ├── docs/                    # Documentation site (Jekyll)
 ├── .github/workflows/       # CI + release + docs deployment
