@@ -25,7 +25,7 @@ env:
 jobs:
   phase1-lint-go:
     name: "Phase 1: Go Lint"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
 
   phase1-lint-helm:
     name: "Phase 1: Helm Lint"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
 
   phase1-gate:
     name: "Phase 1: Gate"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase1-lint-go, phase1-lint-helm]
     if: always()
     steps:
@@ -105,7 +105,7 @@ jobs:
   # =============================================================================
   phase2-docs:
     name: "Phase 2: Documentation Build"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase1-gate]
     if: ${{ !cancelled() && needs.phase1-gate.result == 'success' }}
     steps:
@@ -119,7 +119,7 @@ jobs:
 
   phase2-docs-freshness:
     name: "Phase 2: Docs Freshness"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase1-gate]
     if: ${{ !cancelled() && needs.phase1-gate.result == 'success' && github.event_name == 'pull_request' }}
     steps:
@@ -140,7 +140,7 @@ jobs:
 
   phase2-security:
     name: "Phase 2: Security Scan"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase1-gate]
     if: ${{ !cancelled() && needs.phase1-gate.result == 'success' }}
     steps:
@@ -168,7 +168,7 @@ jobs:
 
   phase2-gate:
     name: "Phase 2: Gate"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase1-gate, phase2-docs, phase2-docs-freshness, phase2-security]
     if: always()
     steps:
@@ -196,7 +196,7 @@ jobs:
   # =============================================================================
   phase3-test-go:
     name: "Phase 3: Go Tests"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase2-gate]
     if: ${{ !cancelled() && needs.phase2-gate.result == 'success' }}
     steps:
@@ -254,7 +254,7 @@ jobs:
 
   phase3-gate:
     name: "Phase 3: Gate"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase2-gate, phase3-test-go]
     if: always()
     steps:
@@ -278,7 +278,7 @@ jobs:
   # =============================================================================
   phase4-build-go:
     name: "Phase 4: Build ${{ matrix.binary.name }}"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase3-gate]
     if: ${{ !cancelled() && needs.phase3-gate.result == 'success' }}
     strategy:
@@ -312,7 +312,7 @@ jobs:
 
   phase4-docker-test:
     name: "Phase 4: Docker Build Test"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase3-gate]
     if: ${{ !cancelled() && needs.phase3-gate.result == 'success' }}
     steps:
@@ -335,7 +335,7 @@ jobs:
 
   phase4-gate:
     name: "Phase 4: Gate"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase3-gate, phase4-build-go, phase4-docker-test]
     if: always()
     steps:
@@ -362,7 +362,7 @@ jobs:
   # =============================================================================
   phase5-push:
     name: "Phase 5: Push to GHCR"
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase4-gate]
     if: ${{ !cancelled() && needs.phase4-gate.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     permissions:
@@ -406,7 +406,7 @@ jobs:
   # =============================================================================
   status-check:
     name: Status Check
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     needs: [phase4-gate]
     if: always()
     steps:

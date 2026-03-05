@@ -13,7 +13,7 @@ permissions:
 jobs:
   trivy-fs:
     name: Trivy Filesystem Scan
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +71,7 @@ jobs:
 
   trivy-images:
     name: Trivy Image Scan (novaroute-agent)
-    runs-on: arc-runner-novaroute
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
