@@ -600,11 +600,21 @@ func (r *Reconciler) TriggerReconcile() {
 
 // SetFRRClient updates the FRR client used by the reconciler. This is called
 // when the FRR connection is established after the reconciler has already started.
+// It clears all applied state so the reconciler re-applies everything to the
+// (potentially restarted) FRR instance.
 func (r *Reconciler) SetFRRClient(client *frr.Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.frrClient = client
-	r.logger.Info("FRR client updated in reconciler")
+	// Clear applied state — after an FRR restart the daemon has lost all
+	// dynamically configured peers/prefixes/BFD/OSPF, so the reconciler
+	// must re-apply everything on the next loop iteration.
+	r.appliedPeers = make(map[string]*intent.PeerIntent)
+	r.appliedPrefixes = make(map[string]*intent.PrefixIntent)
+	r.appliedBFD = make(map[string]*intent.BFDIntent)
+	r.appliedOSPF = make(map[string]*intent.OSPFIntent)
+	r.peerManagedBFD = make(map[string]bool)
+	r.logger.Info("FRR client updated in reconciler, applied state cleared for full re-reconciliation")
 }
 
 // SetEventPublisher sets the event publisher used to emit FRR state change

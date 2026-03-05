@@ -25,12 +25,19 @@ func (c *Client) AddBFDPeer(ctx context.Context, peerAddr string, minRx, minTx, 
 	commands := []string{
 		"bfd",
 		peerCmd,
-		fmt.Sprintf("receive-interval %d", minRx),
-		fmt.Sprintf("transmit-interval %d", minTx),
-		fmt.Sprintf("detect-multiplier %d", detectMult),
-		"exit",
-		"exit",
 	}
+	// Only set BFD intervals when explicitly specified (non-zero).
+	// Zero values mean "use FRR defaults" and are rejected by FRR.
+	if minRx > 0 {
+		commands = append(commands, fmt.Sprintf("receive-interval %d", minRx))
+	}
+	if minTx > 0 {
+		commands = append(commands, fmt.Sprintf("transmit-interval %d", minTx))
+	}
+	if detectMult > 0 {
+		commands = append(commands, fmt.Sprintf("detect-multiplier %d", detectMult))
+	}
+	commands = append(commands, "exit", "exit")
 
 	if err := c.runConfig(ctx, commands); err != nil {
 		return fmt.Errorf("frr: add BFD peer %s: %w", peerAddr, err)
