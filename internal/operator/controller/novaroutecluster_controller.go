@@ -254,10 +254,18 @@ func (r *NovaRouteClusterReconciler) reconcileClusterRoleBinding(ctx context.Con
 type agentConfig struct {
 	ListenSocket          string                     `json:"listen_socket"`
 	FRR                   agentFRRConfig             `json:"frr"`
+	BGP                   *agentBGPConfig            `json:"bgp,omitempty"`
 	Owners                map[string]agentOwnerEntry `json:"owners"`
 	LogLevel              string                     `json:"log_level"`
 	MetricsAddress        string                     `json:"metrics_address"`
 	DisconnectGracePeriod int                        `json:"disconnect_grace_period"`
+}
+
+type agentBGPConfig struct {
+	LocalAS      uint32 `json:"local_as,omitempty"`
+	AsBase       uint32 `json:"as_base,omitempty"`
+	RouterID     string `json:"router_id,omitempty"`
+	AutoRouterID bool   `json:"auto_router_id,omitempty"`
 }
 
 type agentFRRConfig struct {
@@ -329,6 +337,16 @@ func (r *NovaRouteClusterReconciler) reconcileAgentConfigMap(ctx context.Context
 		LogLevel:              logLevel,
 		MetricsAddress:        fmt.Sprintf(":%d", metricsPort),
 		DisconnectGracePeriod: 30,
+	}
+
+	// Include BGP config if specified in the CRD.
+	if cluster.Spec.Agent.BGP != nil {
+		cfg.BGP = &agentBGPConfig{
+			LocalAS:      cluster.Spec.Agent.BGP.LocalAS,
+			AsBase:       cluster.Spec.Agent.BGP.AsBase,
+			RouterID:     cluster.Spec.Agent.BGP.RouterID,
+			AutoRouterID: cluster.Spec.Agent.BGP.AutoRouterID,
+		}
 	}
 
 	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")

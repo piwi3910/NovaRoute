@@ -87,6 +87,10 @@ type NovaRouteAgentSpec struct {
 	// +optional
 	LogLevel string `json:"logLevel,omitempty"`
 
+	// BGP holds BGP global settings for the agent.
+	// +optional
+	BGP *BGPSpec `json:"bgp,omitempty"`
+
 	// Owners defines the gRPC client authentication and policy configuration.
 	// +optional
 	Owners []OwnerSpec `json:"owners,omitempty"`
@@ -98,6 +102,27 @@ type NovaRouteAgentSpec struct {
 	// ExtraEnv are additional environment variables.
 	// +optional
 	ExtraEnv []corev1.EnvVar `json:"extraEnv,omitempty"`
+}
+
+// BGPSpec defines BGP global settings for the NovaRoute agent.
+type BGPSpec struct {
+	// LocalAS is the local autonomous system number.
+	// +optional
+	LocalAS uint32 `json:"localAs,omitempty"`
+
+	// AsBase enables per-node AS computation: local_as = as_base + last octet
+	// of the node IP. Requires NODE_IP env var (injected automatically).
+	// +optional
+	AsBase uint32 `json:"asBase,omitempty"`
+
+	// RouterID is the BGP router identifier in IPv4 format.
+	// Supports ${VAR} expansion (e.g., "${NODE_IP}").
+	// +optional
+	RouterID string `json:"routerId,omitempty"`
+
+	// AutoRouterID sets router_id to the node IP automatically.
+	// +optional
+	AutoRouterID bool `json:"autoRouterId,omitempty"`
 }
 
 // OwnerSpec defines a gRPC client owner with auth and prefix policy.

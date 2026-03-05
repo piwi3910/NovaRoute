@@ -223,6 +223,26 @@ spec:
                       - name
                       type: object
                     type: array
+                  bgp:
+                    description: BGP holds BGP global settings for the agent.
+                    properties:
+                      asBase:
+                        description: AsBase enables per-node AS computation. local_as
+                          = as_base + last octet of the node IP.
+                        format: int32
+                        type: integer
+                      autoRouterId:
+                        description: AutoRouterID sets router_id to the node IP automatically.
+                        type: boolean
+                      localAs:
+                        description: LocalAS is the local autonomous system number.
+                        format: int32
+                        type: integer
+                      routerId:
+                        description: RouterID is the BGP router identifier in IPv4
+                          format. Supports ${VAR} expansion.
+                        type: string
+                    type: object
                   image:
                     description: Image overrides the default agent image.
                     type: string
