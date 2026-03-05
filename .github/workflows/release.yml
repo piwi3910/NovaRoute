@@ -23,6 +23,8 @@ jobs:
         binary:
           - name: novaroute-agent
             path: ./cmd/novaroute-agent/
+          - name: novaroute-operator
+            path: ./cmd/novaroute-operator/
           - name: novaroutectl
             path: ./cmd/novaroutectl/
     steps:
@@ -146,11 +148,23 @@ jobs:
           cache-from: type=gha,scope=frr-${{ steps.platform.outputs.pair }}
           cache-to: type=gha,scope=frr-${{ steps.platform.outputs.pair }},mode=max
 
+      - name: Build and push operator
+        id: operator-build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.operator
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/novaroute-operator,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=operator-${{ steps.platform.outputs.pair }}
+          cache-to: type=gha,scope=operator-${{ steps.platform.outputs.pair }},mode=max
+
       - name: Export digests
         run: |
-          mkdir -p /tmp/digests/agent /tmp/digests/frr
+          mkdir -p /tmp/digests/agent /tmp/digests/frr /tmp/digests/operator
           echo "${{ steps.agent-build.outputs.digest }}" > "/tmp/digests/agent/${{ steps.platform.outputs.pair }}"
           echo "${{ steps.frr-build.outputs.digest }}" > "/tmp/digests/frr/${{ steps.platform.outputs.pair }}"
+          echo "${{ steps.operator-build.outputs.digest }}" > "/tmp/digests/operator/${{ steps.platform.outputs.pair }}"
 
       - name: Upload agent digest
         uses: actions/upload-artifact@v6
@@ -164,6 +178,13 @@ jobs:
         with:
           name: frr-digest-${{ steps.platform.outputs.pair }}
           path: /tmp/digests/frr/*
+          retention-days: 1
+
+      - name: Upload operator digest
+        uses: actions/upload-artifact@v6
+        with:
+          name: operator-digest-${{ steps.platform.outputs.pair }}
+          path: /tmp/digests/operator/*
           retention-days: 1
 
   # Merge per-platform images into multi-arch manifests.
@@ -194,6 +215,13 @@ jobs:
         with:
           path: /tmp/digests/frr
           pattern: frr-digest-*
+          merge-multiple: true
+
+      - name: Download operator digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests/operator
+          pattern: operator-digest-*
           merge-multiple: true
 
       - name: Extract agent metadata
@@ -227,3 +255,20 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.frr-meta.outputs.json }}') \
             $(for f in *; do cat "$f" | xargs -I{} echo "${{ env.IMAGE_PREFIX }}/novaroute-frr@{}"; done)
+
+      - name: Extract operator metadata
+        id: operator-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/novaroute-operator
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Create operator manifest
+        working-directory: /tmp/digests/operator
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.operator-meta.outputs.json }}') \
+            $(for f in *; do cat "$f" | xargs -I{} echo "${{ env.IMAGE_PREFIX }}/novaroute-operator@{}"; done)

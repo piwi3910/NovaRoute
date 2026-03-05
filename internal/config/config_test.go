@@ -452,3 +452,87 @@ func TestExpandEnvVars_MixedLiteralAndVar(t *testing.T) {
 		t.Errorf("token = %q, want %q", owner.Token, "hello-world-suffix")
 	}
 }
+
+func TestExpandEnvVars_AsBase(t *testing.T) {
+	t.Setenv("NODE_IP", "192.168.100.11")
+
+	cfg := validConfig()
+	cfg.BGP.AsBase = 65000
+
+	ExpandEnvVars(cfg)
+
+	if cfg.BGP.LocalAS != 65011 {
+		t.Errorf("LocalAS = %d, want 65011", cfg.BGP.LocalAS)
+	}
+}
+
+func TestExpandEnvVars_AsBaseOverridesLocalAS(t *testing.T) {
+	t.Setenv("NODE_IP", "192.168.100.25")
+
+	cfg := validConfig()
+	cfg.BGP.LocalAS = 99999
+	cfg.BGP.AsBase = 65000
+
+	ExpandEnvVars(cfg)
+
+	if cfg.BGP.LocalAS != 65025 {
+		t.Errorf("LocalAS = %d, want 65025 (as_base should override local_as)", cfg.BGP.LocalAS)
+	}
+}
+
+func TestExpandEnvVars_AsBaseNoNodeIP(t *testing.T) {
+	t.Setenv("NODE_IP", "")
+
+	cfg := validConfig()
+	cfg.BGP.LocalAS = 12345
+	cfg.BGP.AsBase = 65000
+
+	ExpandEnvVars(cfg)
+
+	// Without NODE_IP, as_base can't compute, LocalAS stays as-is
+	if cfg.BGP.LocalAS != 12345 {
+		t.Errorf("LocalAS = %d, want 12345 (should keep original when NODE_IP is empty)", cfg.BGP.LocalAS)
+	}
+}
+
+func TestExpandEnvVars_AutoRouterID(t *testing.T) {
+	t.Setenv("NODE_IP", "192.168.100.13")
+
+	cfg := validConfig()
+	cfg.BGP.AutoRouterID = true
+	cfg.BGP.RouterID = "" // clear so auto takes effect
+
+	ExpandEnvVars(cfg)
+
+	if cfg.BGP.RouterID != "192.168.100.13" {
+		t.Errorf("RouterID = %q, want %q", cfg.BGP.RouterID, "192.168.100.13")
+	}
+}
+
+func TestExpandEnvVars_AutoRouterIDDoesNotOverrideExplicit(t *testing.T) {
+	t.Setenv("NODE_IP", "192.168.100.13")
+
+	cfg := validConfig()
+	cfg.BGP.AutoRouterID = true
+	cfg.BGP.RouterID = "10.0.0.1"
+
+	ExpandEnvVars(cfg)
+
+	if cfg.BGP.RouterID != "10.0.0.1" {
+		t.Errorf("RouterID = %q, want %q (explicit should not be overridden)", cfg.BGP.RouterID, "10.0.0.1")
+	}
+}
+
+func TestExpandEnvVars_EnvOverridesTakePrecedenceOverAsBase(t *testing.T) {
+	t.Setenv("NODE_IP", "192.168.100.11")
+	t.Setenv("NOVAROUTE_BGP_LOCAL_AS", "99999")
+
+	cfg := validConfig()
+	cfg.BGP.AsBase = 65000
+
+	ExpandEnvVars(cfg)
+
+	if cfg.BGP.LocalAS != 99999 {
+		t.Errorf("LocalAS = %d, want 99999 (env override takes precedence)", cfg.BGP.LocalAS)
+	}
+}

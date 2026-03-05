@@ -501,7 +501,16 @@ func (r *NovaRouteClusterReconciler) reconcileDaemonSet(ctx context.Context, clu
 			},
 		},
 		Resources: cluster.Spec.Agent.Resources,
-		Env:       cluster.Spec.Agent.ExtraEnv,
+		Env: append([]corev1.EnvVar{
+			{
+				Name: "NODE_IP",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "status.hostIP",
+					},
+				},
+			},
+		}, cluster.Spec.Agent.ExtraEnv...),
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{

@@ -81,8 +81,18 @@ type BGPConfig struct {
 	// LocalAS is the local autonomous system number.
 	LocalAS uint32 `json:"local_as"`
 
+	// AsBase enables per-node AS computation: local_as = as_base + last octet
+	// of NODE_IP. Requires the NODE_IP environment variable to be set. If
+	// both local_as and as_base are set, as_base takes precedence.
+	AsBase uint32 `json:"as_base"`
+
 	// RouterID is the BGP router identifier (IPv4 address format).
+	// Supports ${VAR} expansion (e.g., "${NODE_IP}").
 	RouterID string `json:"router_id"`
+
+	// AutoRouterID, when true, sets router_id to the value of the NODE_IP
+	// environment variable if router_id is not already set.
+	AutoRouterID bool `json:"auto_router_id"`
 }
 
 // OwnerConfig defines the authentication and prefix policy for a single owner.
@@ -232,7 +242,32 @@ func ExpandEnvVars(cfg *Config) {
 	// Expand env vars in router_id string.
 	cfg.BGP.RouterID = os.ExpandEnv(cfg.BGP.RouterID)
 
-	// Explicit env var overrides for BGP fields.
+	// Auto router-id: use NODE_IP if router_id is not set.
+	if cfg.BGP.AutoRouterID && cfg.BGP.RouterID == "" {
+		if nodeIP := os.Getenv("NODE_IP"); nodeIP != "" {
+			cfg.BGP.RouterID = nodeIP
+		}
+	}
+
+	// Per-node AS computation: as_base + last octet of NODE_IP.
+	if cfg.BGP.AsBase > 0 {
+		if nodeIP := os.Getenv("NODE_IP"); nodeIP != "" {
+			parts := strings.Split(nodeIP, ".")
+			if len(parts) == 4 {
+				if lastOctet, err := strconv.ParseUint(parts[3], 10, 32); err == nil {
+					cfg.BGP.LocalAS = cfg.BGP.AsBase + uint32(lastOctet)
+				} else {
+					fmt.Fprintf(os.Stderr, "WARNING: cannot parse last octet of NODE_IP=%q: %v\n", nodeIP, err)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: NODE_IP=%q is not a valid IPv4 address for as_base computation\n", nodeIP)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: bgp.as_base is set but NODE_IP environment variable is not set\n")
+		}
+	}
+
+	// Explicit env var overrides for BGP fields (take highest precedence).
 	if v := os.Getenv("NOVAROUTE_BGP_LOCAL_AS"); v != "" {
 		if as, err := strconv.ParseUint(v, 10, 32); err == nil {
 			cfg.BGP.LocalAS = uint32(as)
