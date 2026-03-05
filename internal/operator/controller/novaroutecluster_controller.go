@@ -262,10 +262,25 @@ type agentConfig struct {
 }
 
 type agentBGPConfig struct {
-	LocalAS      uint32 `json:"local_as,omitempty"`
-	AsBase       uint32 `json:"as_base,omitempty"`
-	RouterID     string `json:"router_id,omitempty"`
-	AutoRouterID bool   `json:"auto_router_id,omitempty"`
+	LocalAS      uint32            `json:"local_as,omitempty"`
+	AsBase       uint32            `json:"as_base,omitempty"`
+	RouterID     string            `json:"router_id,omitempty"`
+	AutoRouterID bool              `json:"auto_router_id,omitempty"`
+	Peers        []agentPeerConfig `json:"peers,omitempty"`
+}
+
+type agentPeerConfig struct {
+	NeighborAddress string `json:"neighbor_address"`
+	RemoteAS        uint32 `json:"remote_as"`
+	Description     string `json:"description,omitempty"`
+	BFDEnabled      bool   `json:"bfd_enabled,omitempty"`
+	BFDMinRxMs      uint32 `json:"bfd_min_rx_ms,omitempty"`
+	BFDMinTxMs      uint32 `json:"bfd_min_tx_ms,omitempty"`
+	BFDDetectMult   uint32 `json:"bfd_detect_multiplier,omitempty"`
+	Keepalive       uint32 `json:"keepalive,omitempty"`
+	HoldTime        uint32 `json:"hold_time,omitempty"`
+	Password        string `json:"password,omitempty"` //nolint:gosec // BGP session password
+	MaxPrefixes     uint32 `json:"max_prefixes,omitempty"`
 }
 
 type agentFRRConfig struct {
@@ -341,12 +356,31 @@ func (r *NovaRouteClusterReconciler) reconcileAgentConfigMap(ctx context.Context
 
 	// Include BGP config if specified in the CRD.
 	if cluster.Spec.Agent.BGP != nil {
-		cfg.BGP = &agentBGPConfig{
+		bgpCfg := &agentBGPConfig{
 			LocalAS:      cluster.Spec.Agent.BGP.LocalAS,
 			AsBase:       cluster.Spec.Agent.BGP.AsBase,
 			RouterID:     cluster.Spec.Agent.BGP.RouterID,
 			AutoRouterID: cluster.Spec.Agent.BGP.AutoRouterID,
 		}
+
+		// Convert CRD peer specs to agent config peer entries.
+		for _, p := range cluster.Spec.Agent.BGP.Peers {
+			bgpCfg.Peers = append(bgpCfg.Peers, agentPeerConfig{
+				NeighborAddress: p.Address,
+				RemoteAS:        p.RemoteAS,
+				Description:     p.Description,
+				BFDEnabled:      p.BFD,
+				BFDMinRxMs:      p.BFDMinRxMs,
+				BFDMinTxMs:      p.BFDMinTxMs,
+				BFDDetectMult:   p.BFDDetectMultiplier,
+				Keepalive:       p.Keepalive,
+				HoldTime:        p.HoldTime,
+				Password:        p.Password,
+				MaxPrefixes:     p.MaxPrefixes,
+			})
+		}
+
+		cfg.BGP = bgpCfg
 	}
 
 	cfgJSON, err := json.MarshalIndent(cfg, "", "  ")

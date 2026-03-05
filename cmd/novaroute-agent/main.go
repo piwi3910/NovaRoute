@@ -96,8 +96,8 @@ func main() {
 	rec.RunLoop(ctx, 30*time.Second)
 	logger.Info("reconciler loop started")
 
-	// Inject FRR client when ready.
-	go waitForFRR(ctx, fs, rec, srv, logger)
+	// Inject FRR client when ready and bootstrap config peers.
+	go waitForFRR(ctx, fs, rec, srv, cfg, store, logger)
 
 	// Set up and start the Unix socket listener.
 	lis, socketPath, err := setupSocketListener(ctx, cfg, logger)
@@ -227,8 +227,8 @@ func createServers(cfg *config.Config, store *intent.Store, policyEngine *policy
 }
 
 // waitForFRR waits for the FRR client to be ready, then injects it into the
-// reconciler and server.
-func waitForFRR(ctx context.Context, fs *frrState, rec *reconciler.Reconciler, srv *server.Server, logger *zap.Logger) {
+// reconciler and server, and bootstraps config-defined BGP peers.
+func waitForFRR(ctx context.Context, fs *frrState, rec *reconciler.Reconciler, srv *server.Server, cfg *config.Config, store *intent.Store, logger *zap.Logger) {
 	select {
 	case <-fs.ready:
 		fs.mu.Lock()
@@ -244,8 +244,80 @@ func waitForFRR(ctx context.Context, fs *frrState, rec *reconciler.Reconciler, s
 		})
 		metrics.RecordEvent("frr_connected")
 
+		// Bootstrap config-defined BGP peers before triggering reconcile.
+		initConfigPeers(cfg, store, logger)
+
 		rec.TriggerReconcile()
 	case <-ctx.Done():
+	}
+}
+
+// configOwner is the special owner name used for peers defined in the config file.
+const configOwner = "_config"
+
+// initConfigPeers loads BGP peers from the agent config into the intent store.
+// These peers are applied on the first reconciliation cycle after FRR is ready.
+func initConfigPeers(cfg *config.Config, store *intent.Store, logger *zap.Logger) {
+	if len(cfg.BGP.Peers) == 0 {
+		return
+	}
+
+	logger.Info("bootstrapping config-defined BGP peers",
+		zap.Int("count", len(cfg.BGP.Peers)),
+	)
+
+	for _, peer := range cfg.BGP.Peers {
+		addressFamilies := make([]v1.AddressFamily, 0, len(peer.AddressFamilies))
+		for _, af := range peer.AddressFamilies {
+			switch strings.ToLower(af) {
+			case "ipv4-unicast", "ipv4_unicast":
+				addressFamilies = append(addressFamilies, v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST)
+			case "ipv6-unicast", "ipv6_unicast":
+				addressFamilies = append(addressFamilies, v1.AddressFamily_ADDRESS_FAMILY_IPV6_UNICAST)
+			default:
+				logger.Warn("unknown address family in config peer, skipping",
+					zap.String("neighbor", peer.NeighborAddress),
+					zap.String("address_family", af),
+				)
+			}
+		}
+		// Default to IPv4 unicast if no address families specified.
+		if len(addressFamilies) == 0 {
+			addressFamilies = []v1.AddressFamily{v1.AddressFamily_ADDRESS_FAMILY_IPV4_UNICAST}
+		}
+
+		peerIntent := &intent.PeerIntent{
+			Owner:               configOwner,
+			NeighborAddress:     peer.NeighborAddress,
+			RemoteAS:            peer.RemoteAS,
+			PeerType:            v1.PeerType_PEER_TYPE_EXTERNAL,
+			Keepalive:           peer.Keepalive,
+			HoldTime:            peer.HoldTime,
+			BFDEnabled:          peer.BFDEnabled,
+			BFDMinRxMs:          peer.BFDMinRxMs,
+			BFDMinTxMs:          peer.BFDMinTxMs,
+			BFDDetectMultiplier: peer.BFDDetectMultiplier,
+			Description:         peer.Description,
+			AddressFamilies:     addressFamilies,
+			SourceAddress:       peer.SourceAddress,
+			EBGPMultihop:        peer.EBGPMultihop,
+			Password:            peer.Password,
+			MaxPrefixes:         peer.MaxPrefixes,
+		}
+
+		if err := store.SetPeerIntent(configOwner, peerIntent); err != nil {
+			logger.Error("failed to set config peer intent",
+				zap.String("neighbor", peer.NeighborAddress),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		logger.Info("config peer loaded into intent store",
+			zap.String("neighbor", peer.NeighborAddress),
+			zap.Uint32("remote_as", peer.RemoteAS),
+			zap.Bool("bfd", peer.BFDEnabled),
+		)
 	}
 }
 

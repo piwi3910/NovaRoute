@@ -123,6 +123,59 @@ type BGPSpec struct {
 	// AutoRouterID sets router_id to the node IP automatically.
 	// +optional
 	AutoRouterID bool `json:"autoRouterId,omitempty"`
+
+	// Peers defines BGP peers to configure on every agent at startup.
+	// These peers are automatically applied when FRR becomes ready.
+	// +optional
+	Peers []BGPPeerSpec `json:"peers,omitempty"`
+}
+
+// BGPPeerSpec defines a BGP peer to be configured on agent startup.
+type BGPPeerSpec struct {
+	// Address is the IP address of the BGP neighbor.
+	// +kubebuilder:validation:Required
+	Address string `json:"address"`
+
+	// RemoteAS is the remote autonomous system number.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Minimum=1
+	RemoteAS uint32 `json:"remoteAs"`
+
+	// Description is an optional human-readable description.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// BFD enables BFD for this peer.
+	// +optional
+	BFD bool `json:"bfd,omitempty"`
+
+	// BFDMinRxMs is the BFD minimum receive interval in milliseconds.
+	// +optional
+	BFDMinRxMs uint32 `json:"bfdMinRxMs,omitempty"`
+
+	// BFDMinTxMs is the BFD minimum transmit interval in milliseconds.
+	// +optional
+	BFDMinTxMs uint32 `json:"bfdMinTxMs,omitempty"`
+
+	// BFDDetectMultiplier is the BFD detection multiplier.
+	// +optional
+	BFDDetectMultiplier uint32 `json:"bfdDetectMultiplier,omitempty"`
+
+	// Keepalive is the BGP keepalive interval in seconds.
+	// +optional
+	Keepalive uint32 `json:"keepalive,omitempty"`
+
+	// HoldTime is the BGP hold time in seconds.
+	// +optional
+	HoldTime uint32 `json:"holdTime,omitempty"`
+
+	// Password is the BGP session password.
+	// +optional
+	Password string `json:"password,omitempty"`
+
+	// MaxPrefixes is the maximum prefix limit (0 = default 1000).
+	// +optional
+	MaxPrefixes uint32 `json:"maxPrefixes,omitempty"`
 }
 
 // OwnerSpec defines a gRPC client owner with auth and prefix policy.

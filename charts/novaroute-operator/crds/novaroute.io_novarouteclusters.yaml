@@ -238,6 +238,65 @@ spec:
                         description: LocalAS is the local autonomous system number.
                         format: int32
                         type: integer
+                      peers:
+                        description: Peers defines BGP peers to configure on every
+                          agent at startup.
+                        items:
+                          description: BGPPeerSpec defines a BGP peer to be configured
+                            on agent startup.
+                          properties:
+                            address:
+                              description: Address is the IP address of the BGP neighbor.
+                              type: string
+                            remoteAs:
+                              description: RemoteAS is the remote autonomous system
+                                number.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            description:
+                              description: Description is an optional human-readable
+                                description.
+                              type: string
+                            bfd:
+                              description: BFD enables BFD for this peer.
+                              type: boolean
+                            bfdMinRxMs:
+                              description: BFDMinRxMs is the BFD minimum receive interval
+                                in milliseconds.
+                              format: int32
+                              type: integer
+                            bfdMinTxMs:
+                              description: BFDMinTxMs is the BFD minimum transmit interval
+                                in milliseconds.
+                              format: int32
+                              type: integer
+                            bfdDetectMultiplier:
+                              description: BFDDetectMultiplier is the BFD detection
+                                multiplier.
+                              format: int32
+                              type: integer
+                            keepalive:
+                              description: Keepalive is the BGP keepalive interval
+                                in seconds.
+                              format: int32
+                              type: integer
+                            holdTime:
+                              description: HoldTime is the BGP hold time in seconds.
+                              format: int32
+                              type: integer
+                            password:
+                              description: Password is the BGP session password.
+                              type: string
+                            maxPrefixes:
+                              description: MaxPrefixes is the maximum prefix limit.
+                              format: int32
+                              type: integer
+                          required:
+                          - address
+                          - remoteAs
+                          type: object
+                        type: array
                       routerId:
                         description: RouterID is the BGP router identifier in IPv4
                           format. Supports ${VAR} expansion.

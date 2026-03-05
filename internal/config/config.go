@@ -93,6 +93,56 @@ type BGPConfig struct {
 	// AutoRouterID, when true, sets router_id to the value of the NODE_IP
 	// environment variable if router_id is not already set.
 	AutoRouterID bool `json:"auto_router_id"`
+
+	// Peers defines BGP peers that the agent should configure on startup.
+	// These peers are applied automatically when FRR becomes ready, using
+	// the internal intent→reconciler→FRR pipeline with owner "_config".
+	Peers []PeerConfig `json:"peers"`
+}
+
+// PeerConfig defines a BGP peer to be configured on agent startup.
+type PeerConfig struct {
+	// NeighborAddress is the IP address of the BGP neighbor (required).
+	NeighborAddress string `json:"neighbor_address"`
+
+	// RemoteAS is the remote autonomous system number (required).
+	RemoteAS uint32 `json:"remote_as"`
+
+	// Description is an optional human-readable description for the peer.
+	Description string `json:"description"`
+
+	// BFDEnabled enables BFD (Bidirectional Forwarding Detection) for this peer.
+	BFDEnabled bool `json:"bfd_enabled"`
+
+	// BFDMinRxMs is the BFD minimum receive interval in milliseconds (default 300).
+	BFDMinRxMs uint32 `json:"bfd_min_rx_ms"`
+
+	// BFDMinTxMs is the BFD minimum transmit interval in milliseconds (default 300).
+	BFDMinTxMs uint32 `json:"bfd_min_tx_ms"`
+
+	// BFDDetectMultiplier is the BFD detection multiplier (default 3).
+	BFDDetectMultiplier uint32 `json:"bfd_detect_multiplier"`
+
+	// Keepalive is the BGP keepalive interval in seconds (0 = FRR default).
+	Keepalive uint32 `json:"keepalive"`
+
+	// HoldTime is the BGP hold time in seconds (0 = FRR default).
+	HoldTime uint32 `json:"hold_time"`
+
+	// AddressFamilies is the list of address families to activate (default: ["ipv4-unicast"]).
+	AddressFamilies []string `json:"address_families"`
+
+	// SourceAddress is the update source address for the peer.
+	SourceAddress string `json:"source_address"`
+
+	// EBGPMultihop is the eBGP multihop TTL (0 = disabled).
+	EBGPMultihop uint32 `json:"ebgp_multihop"`
+
+	// Password is the BGP session password.
+	Password string `json:"password"` //nolint:gosec // BGP session password, not a credential
+
+	// MaxPrefixes is the maximum prefix limit (0 = default 1000).
+	MaxPrefixes uint32 `json:"max_prefixes"`
 }
 
 // OwnerConfig defines the authentication and prefix policy for a single owner.
@@ -179,6 +229,24 @@ func Validate(cfg *Config) error {
 	if cfg.BGP.RouterID != "" {
 		if ip := net.ParseIP(cfg.BGP.RouterID); ip == nil {
 			return fmt.Errorf("bgp.router_id %q: %w", cfg.BGP.RouterID, ErrBGPRouterIDInvalid)
+		}
+	}
+
+	// Validate configured BGP peers.
+	for i, peer := range cfg.BGP.Peers {
+		if peer.NeighborAddress == "" {
+			return fmt.Errorf("bgp.peers[%d]: neighbor_address must not be empty", i)
+		}
+		if ip := net.ParseIP(peer.NeighborAddress); ip == nil {
+			return fmt.Errorf("bgp.peers[%d]: neighbor_address %q is not a valid IP address", i, peer.NeighborAddress)
+		}
+		if peer.RemoteAS == 0 {
+			return fmt.Errorf("bgp.peers[%d]: remote_as must be greater than 0", i)
+		}
+		if peer.SourceAddress != "" {
+			if ip := net.ParseIP(peer.SourceAddress); ip == nil {
+				return fmt.Errorf("bgp.peers[%d]: source_address %q is not a valid IP address", i, peer.SourceAddress)
+			}
 		}
 	}
 

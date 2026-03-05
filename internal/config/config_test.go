@@ -536,3 +536,94 @@ func TestExpandEnvVars_EnvOverridesTakePrecedenceOverAsBase(t *testing.T) {
 		t.Errorf("LocalAS = %d, want 99999 (env override takes precedence)", cfg.BGP.LocalAS)
 	}
 }
+
+func TestValidate_PeersValid(t *testing.T) {
+	cfg := validConfig()
+	cfg.BGP.Peers = []PeerConfig{
+		{NeighborAddress: "192.168.100.2", RemoteAS: 65000, Description: "TOR-1", BFDEnabled: true},
+		{NeighborAddress: "192.168.100.3", RemoteAS: 65000, Description: "TOR-2", BFDEnabled: true},
+	}
+
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate() returned error for valid peers config: %v", err)
+	}
+}
+
+func TestValidate_PeerEmptyNeighbor(t *testing.T) {
+	cfg := validConfig()
+	cfg.BGP.Peers = []PeerConfig{
+		{NeighborAddress: "", RemoteAS: 65000},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Error("Validate() should return error for empty neighbor_address")
+	}
+}
+
+func TestValidate_PeerInvalidNeighbor(t *testing.T) {
+	cfg := validConfig()
+	cfg.BGP.Peers = []PeerConfig{
+		{NeighborAddress: "not-an-ip", RemoteAS: 65000},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Error("Validate() should return error for invalid neighbor_address")
+	}
+}
+
+func TestValidate_PeerZeroRemoteAS(t *testing.T) {
+	cfg := validConfig()
+	cfg.BGP.Peers = []PeerConfig{
+		{NeighborAddress: "192.168.100.2", RemoteAS: 0},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Error("Validate() should return error for remote_as=0")
+	}
+}
+
+func TestValidate_PeerInvalidSourceAddress(t *testing.T) {
+	cfg := validConfig()
+	cfg.BGP.Peers = []PeerConfig{
+		{NeighborAddress: "192.168.100.2", RemoteAS: 65000, SourceAddress: "bad"},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Error("Validate() should return error for invalid source_address")
+	}
+}
+
+func TestLoadFromFile_WithPeers(t *testing.T) {
+	cfg := validConfig()
+	cfg.BGP.Peers = []PeerConfig{
+		{NeighborAddress: "10.0.0.1", RemoteAS: 65001, BFDEnabled: true, BFDMinRxMs: 200, BFDMinTxMs: 200, BFDDetectMultiplier: 5},
+	}
+
+	path := writeTestConfig(t, cfg)
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile() error: %v", err)
+	}
+
+	if len(loaded.BGP.Peers) != 1 {
+		t.Fatalf("expected 1 peer, got %d", len(loaded.BGP.Peers))
+	}
+
+	peer := loaded.BGP.Peers[0]
+	if peer.NeighborAddress != "10.0.0.1" {
+		t.Errorf("peer.NeighborAddress = %q, want %q", peer.NeighborAddress, "10.0.0.1")
+	}
+	if peer.RemoteAS != 65001 {
+		t.Errorf("peer.RemoteAS = %d, want %d", peer.RemoteAS, 65001)
+	}
+	if !peer.BFDEnabled {
+		t.Error("peer.BFDEnabled should be true")
+	}
+	if peer.BFDMinRxMs != 200 {
+		t.Errorf("peer.BFDMinRxMs = %d, want 200", peer.BFDMinRxMs)
+	}
+}
