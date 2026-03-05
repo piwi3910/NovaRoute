@@ -27,7 +27,7 @@ func TestResolveAFICLI_BGP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := resolveAFICLI(tt.input)
-		assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
