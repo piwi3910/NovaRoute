@@ -149,3 +149,5 @@ tests:
     enabled: true
   integration:
     enabled: true
+  functional:
+    enabled: true

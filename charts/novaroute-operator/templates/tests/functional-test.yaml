@@ -1,0 +1,404 @@
+{{- if .Values.tests.functional.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-functional-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-functional-test
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "services", "configmaps"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-functional-test
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "novaroute-operator.fullname" . }}-functional-test
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "novaroute-operator.fullname" . }}-functional-test
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "novaroute-operator.fullname" . }}-functional-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "novaroute-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "novaroute-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: functional-test
+    spec:
+      serviceAccountName: {{ include "novaroute-operator.fullname" . }}-functional-test
+      restartPolicy: Never
+      containers:
+        - name: functional-test
+          image: {{ .Values.tests.image | default "bitnami/kubectl:latest" }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -uo pipefail
+
+              NAMESPACE="{{ .Release.Namespace }}"
+              AGENT_CONTAINER="novaroute-agent"
+              FRR_CONTAINER="frr"
+
+              PASS=0; FAIL_COUNT=0; WARN_COUNT=0
+
+              pass()  { echo "    PASS: $1"; PASS=$((PASS+1)); }
+              fail()  { echo "    FAIL: $1"; FAIL_COUNT=$((FAIL_COUNT+1)); }
+              warn()  { echo "    WARN: $1"; WARN_COUNT=$((WARN_COUNT+1)); }
+
+              echo "=== NovaRoute Functional Test ==="
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [1/10] Agent DaemonSet Health ---"
+
+              DS_NAME=$(kubectl get ds -n "$NAMESPACE" -l app.kubernetes.io/component=agent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || DS_NAME=""
+              if [ -z "$DS_NAME" ]; then
+                fail "No agent DaemonSet found in $NAMESPACE"
+                echo ""; echo "=== RESULTS: $PASS passed, $FAIL_COUNT failed, $WARN_COUNT warnings ==="
+                echo "=== Functional Test FAILED ==="; exit 1
+              fi
+
+              DESIRED=$(kubectl get ds "$DS_NAME" -n "$NAMESPACE" -o jsonpath='{.status.desiredNumberScheduled}')
+              READY=$(kubectl get ds "$DS_NAME" -n "$NAMESPACE" -o jsonpath='{.status.numberReady}')
+              echo "    DaemonSet $DS_NAME: Desired=$DESIRED Ready=$READY"
+
+              if [ "$DESIRED" -eq 0 ]; then
+                fail "DaemonSet has 0 desired pods"
+              elif [ "$DESIRED" != "$READY" ]; then
+                fail "DaemonSet not fully ready: $READY/$DESIRED"
+              else
+                pass "All $DESIRED agent pods ready"
+              fi
+
+              # Collect running agent pods (exclude test pods)
+              PODS=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=agent \
+                --field-selector=status.phase=Running -o jsonpath='{.items[*].metadata.name}')
+              read -ra POD_ARRAY <<< "$PODS"
+              POD_COUNT=${#POD_ARRAY[@]}
+
+              if [ "$POD_COUNT" -eq 0 ]; then
+                fail "No running agent pods found"
+                echo ""; echo "=== RESULTS: $PASS passed, $FAIL_COUNT failed, $WARN_COUNT warnings ==="
+                echo "=== Functional Test FAILED ==="; exit 1
+              fi
+
+              # Check both containers ready on every pod
+              ALL_CONTAINERS_OK=true
+              for POD in "${POD_ARRAY[@]}"; do
+                AGENT_READY=$(kubectl get pod "$POD" -n "$NAMESPACE" \
+                  -o jsonpath='{.status.containerStatuses[?(@.name=="novaroute-agent")].ready}')
+                FRR_READY=$(kubectl get pod "$POD" -n "$NAMESPACE" \
+                  -o jsonpath='{.status.containerStatuses[?(@.name=="frr")].ready}')
+                if [ "$AGENT_READY" != "true" ] || [ "$FRR_READY" != "true" ]; then
+                  fail "Pod $POD: agent=$AGENT_READY frr=$FRR_READY"
+                  ALL_CONTAINERS_OK=false
+                fi
+              done
+              if [ "$ALL_CONTAINERS_OK" = true ]; then
+                pass "Both containers (agent+frr) ready on all $POD_COUNT pods"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [2/10] FRR Connectivity ---"
+
+              FRR_OK=0; FRR_BAD=0
+              for POD in "${POD_ARRAY[@]}"; do
+                STATUS_OUT=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  novaroutectl status 2>&1) || true
+                if echo "$STATUS_OUT" | grep -q "Connection: connected"; then
+                  FRR_OK=$((FRR_OK+1))
+                else
+                  FRR_BAD=$((FRR_BAD+1))
+                  echo "    Pod $POD: FRR NOT connected"
+                fi
+              done
+
+              if [ "$FRR_BAD" -gt 0 ]; then
+                fail "FRR disconnected on $FRR_BAD/$POD_COUNT pods"
+              else
+                pass "FRR connected on all $POD_COUNT pods"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [3/10] gRPC Socket ---"
+
+              SOCK_BAD=0
+              SOCKET_PATH=$(kubectl get cm -n "$NAMESPACE" -l app.kubernetes.io/component!=test \
+                -o jsonpath='{.items[0].data.config\.json}' 2>/dev/null | \
+                grep -oP '"listen_socket":\s*"\K[^"]+' 2>/dev/null) || SOCKET_PATH="/run/novaroute/novaroute.sock"
+
+              for POD in "${POD_ARRAY[@]}"; do
+                if ! kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  test -S "$SOCKET_PATH" 2>/dev/null; then
+                  SOCK_BAD=$((SOCK_BAD+1))
+                  echo "    Pod $POD: socket $SOCKET_PATH missing"
+                fi
+              done
+
+              if [ "$SOCK_BAD" -gt 0 ]; then
+                fail "gRPC socket missing on $SOCK_BAD/$POD_COUNT pods"
+              else
+                pass "gRPC socket present on all $POD_COUNT pods"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [4/10] BGP Peer Configuration ---"
+
+              PEERS_BAD=0
+              for POD in "${POD_ARRAY[@]}"; do
+                PEERS_OUT=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  novaroutectl peers 2>&1) || true
+                if echo "$PEERS_OUT" | grep -qi "no bgp peers"; then
+                  PEERS_BAD=$((PEERS_BAD+1))
+                  echo "    Pod $POD: no peers configured"
+                else
+                  PEER_COUNT=$(echo "$PEERS_OUT" | tail -n +3 | grep -c -v '^$' || true)
+                  echo "    Pod $POD: $PEER_COUNT peer(s)"
+                fi
+              done
+
+              if [ "$PEERS_BAD" -gt 0 ]; then
+                fail "No BGP peers on $PEERS_BAD/$POD_COUNT agents"
+              else
+                pass "BGP peers configured on all $POD_COUNT agents"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [5/10] BGP Peer Sessions ---"
+
+              ESTABLISHED_NODES=0; PARTIAL_NODES=0; DOWN_NODES=0
+              for POD in "${POD_ARRAY[@]}"; do
+                PEERS_OUT=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  novaroutectl peers 2>&1) || true
+                TOTAL_PEERS=$(echo "$PEERS_OUT" | tail -n +3 | grep -c -v '^$' || true)
+                EST_PEERS=$(echo "$PEERS_OUT" | grep -c "Established" || true)
+
+                if [ "$TOTAL_PEERS" -eq 0 ]; then
+                  DOWN_NODES=$((DOWN_NODES+1))
+                elif [ "$EST_PEERS" -eq "$TOTAL_PEERS" ]; then
+                  ESTABLISHED_NODES=$((ESTABLISHED_NODES+1))
+                elif [ "$EST_PEERS" -gt 0 ]; then
+                  PARTIAL_NODES=$((PARTIAL_NODES+1))
+                  echo "    Pod $POD: $EST_PEERS/$TOTAL_PEERS Established (partial)"
+                else
+                  DOWN_NODES=$((DOWN_NODES+1))
+                  echo "    Pod $POD: 0/$TOTAL_PEERS Established"
+                fi
+              done
+
+              if [ "$ESTABLISHED_NODES" -eq "$POD_COUNT" ]; then
+                pass "All peers Established on all $POD_COUNT nodes"
+              elif [ $((ESTABLISHED_NODES + PARTIAL_NODES)) -gt 0 ]; then
+                warn "BGP peers partially established: $ESTABLISHED_NODES full, $PARTIAL_NODES partial, $DOWN_NODES down (of $POD_COUNT)"
+              else
+                fail "No BGP peers Established on any node"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [6/10] BFD Sessions ---"
+
+              BFD_UP=0; BFD_DOWN=0; BFD_NONE=0
+              for POD in "${POD_ARRAY[@]}"; do
+                BFD_OUT=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  novaroutectl bfd 2>&1) || true
+                if echo "$BFD_OUT" | grep -qi "no bfd sessions"; then
+                  BFD_NONE=$((BFD_NONE+1))
+                else
+                  UP_COUNT=$(echo "$BFD_OUT" | tail -n +3 | grep -ci "up" || true)
+                  NOT_UP=$(echo "$BFD_OUT" | tail -n +3 | grep -v "^$" | grep -cvi "up" || true)
+                  if [ "$NOT_UP" -gt 0 ]; then
+                    BFD_DOWN=$((BFD_DOWN+1))
+                    echo "    Pod $POD: $UP_COUNT up, $NOT_UP not-up"
+                  else
+                    BFD_UP=$((BFD_UP+1))
+                  fi
+                fi
+              done
+
+              if [ "$BFD_NONE" -eq "$POD_COUNT" ]; then
+                warn "No BFD sessions on any agent (may not be configured)"
+              elif [ "$BFD_DOWN" -gt 0 ]; then
+                warn "BFD sessions down on $BFD_DOWN/$POD_COUNT agents"
+              else
+                pass "All BFD sessions up on $BFD_UP/$POD_COUNT agents"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [7/10] Prefix Advertisements ---"
+
+              PFX_OK=0; PFX_NONE=0
+              for POD in "${POD_ARRAY[@]}"; do
+                PFX_OUT=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  novaroutectl prefixes 2>&1) || true
+                if echo "$PFX_OUT" | grep -qi "no prefixes"; then
+                  PFX_NONE=$((PFX_NONE+1))
+                else
+                  ADV_COUNT=$(echo "$PFX_OUT" | grep -c "advertised" || true)
+                  PFX_OK=$((PFX_OK+1))
+                  echo "    Pod $POD: $ADV_COUNT prefix(es) advertised"
+                fi
+              done
+
+              if [ "$PFX_NONE" -eq "$POD_COUNT" ]; then
+                warn "No prefixes advertised on any agent (owners may not have registered yet)"
+              elif [ "$PFX_NONE" -gt 0 ]; then
+                warn "No prefixes on $PFX_NONE/$POD_COUNT agents"
+              else
+                pass "Prefixes advertised on all $POD_COUNT agents"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [8/10] Metrics Endpoint ---"
+
+              METRICS_BAD=0
+              METRICS_PORT=$(kubectl get cm -n "$NAMESPACE" -l app.kubernetes.io/component!=test \
+                -o jsonpath='{.items[0].data.config\.json}' 2>/dev/null | \
+                grep -oP '"metrics_address":\s*":\K[0-9]+' 2>/dev/null) || METRICS_PORT="9102"
+
+              for POD in "${POD_ARRAY[@]}"; do
+                HEALTH=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  wget -q -O- "http://127.0.0.1:${METRICS_PORT}/healthz" 2>/dev/null) || HEALTH="FAIL"
+                READYZ=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  wget -q -O- "http://127.0.0.1:${METRICS_PORT}/readyz" 2>/dev/null) || READYZ="FAIL"
+                METRICS_HEAD=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  wget -q -O- "http://127.0.0.1:${METRICS_PORT}/metrics" 2>/dev/null | head -1) || METRICS_HEAD=""
+
+                if [ "$HEALTH" = "FAIL" ] || [ "$READYZ" = "FAIL" ] || [ -z "$METRICS_HEAD" ]; then
+                  METRICS_BAD=$((METRICS_BAD+1))
+                  echo "    Pod $POD: health=$HEALTH readyz=$READYZ metrics=$([ -n "$METRICS_HEAD" ] && echo 'ok' || echo 'empty')"
+                fi
+              done
+
+              if [ "$METRICS_BAD" -gt 0 ]; then
+                fail "Metrics/health endpoint failed on $METRICS_BAD/$POD_COUNT pods"
+              else
+                pass "Metrics, healthz, readyz OK on all $POD_COUNT pods"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [9/10] ConfigMap Correctness ---"
+
+              # Derive config ConfigMap name from DaemonSet (strip -agent suffix, add -config)
+              CONFIG_CM="${DS_NAME%-agent}-config"
+              CONFIG_DATA=$(kubectl get cm "$CONFIG_CM" -n "$NAMESPACE" -o jsonpath='{.data.config\.json}' 2>/dev/null) || CONFIG_DATA=""
+
+              if [ -z "$CONFIG_DATA" ]; then
+                fail "Agent ConfigMap $CONFIG_CM not found or empty"
+              else
+                CONFIG_OK=true
+                for KEY in listen_socket frr owners metrics_address; do
+                  if ! echo "$CONFIG_DATA" | grep -q "\"$KEY\""; then
+                    fail "ConfigMap missing key: $KEY"
+                    CONFIG_OK=false
+                  fi
+                done
+                if [ "$CONFIG_OK" = true ]; then
+                  pass "Agent ConfigMap has all required keys"
+                fi
+              fi
+
+              # Check FRR bootstrap ConfigMap
+              FRR_CM="${DS_NAME%-agent}-frr-bootstrap"
+              FRR_DAEMONS=$(kubectl get cm "$FRR_CM" -n "$NAMESPACE" -o jsonpath='{.data.daemons}' 2>/dev/null) || FRR_DAEMONS=""
+
+              if [ -z "$FRR_DAEMONS" ]; then
+                fail "FRR bootstrap ConfigMap $FRR_CM not found"
+              else
+                if echo "$FRR_DAEMONS" | grep -q "bgpd=yes"; then
+                  pass "FRR daemons config: bgpd enabled"
+                else
+                  fail "FRR daemons config: bgpd not enabled"
+                fi
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "--- [10/10] FRR Daemon Status ---"
+
+              SAMPLE_POD="${POD_ARRAY[0]}"
+              DAEMONS_BAD=0
+
+              for DAEMON in bgpd bfdd zebra; do
+                if kubectl exec "$SAMPLE_POD" -n "$NAMESPACE" -c "$FRR_CONTAINER" -- \
+                  test -f "/run/frr/${DAEMON}.pid" 2>/dev/null; then
+                  echo "    $DAEMON: running (pid file present)"
+                else
+                  DAEMONS_BAD=$((DAEMONS_BAD+1))
+                  echo "    $DAEMON: NOT running (no pid file)"
+                fi
+              done
+
+              if [ "$DAEMONS_BAD" -gt 0 ]; then
+                fail "$DAEMONS_BAD FRR daemon(s) not running on $SAMPLE_POD"
+              else
+                pass "All FRR daemons running (zebra, bgpd, bfdd)"
+              fi
+              echo ""
+
+              # ---------------------------------------------------------------
+              echo "========================================"
+              echo "=== Functional Test Results ==="
+              echo "    Passed:   $PASS"
+              echo "    Failed:   $FAIL_COUNT"
+              echo "    Warnings: $WARN_COUNT"
+              echo "========================================"
+
+              if [ "$FAIL_COUNT" -gt 0 ]; then
+                echo "=== Functional Test FAILED ==="
+                exit 1
+              fi
+
+              echo "=== Functional Test PASSED ==="
+{{- end }}
