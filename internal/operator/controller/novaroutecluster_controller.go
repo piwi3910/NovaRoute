@@ -509,7 +509,7 @@ func (r *NovaRouteClusterReconciler) renderDaemonsFile(bgpd, ospfd, bfdd bool) s
 	sb.WriteString("zebra_options=\"-A 127.0.0.1 -s 90000000\"\n")
 	sb.WriteString("bgpd_options=\"-A 127.0.0.1\"\n")
 	sb.WriteString("ospfd_options=\"-A 127.0.0.1\"\n")
-	sb.WriteString("bfdd_options=\"-A 127.0.0.1\"\n")
+	sb.WriteString("bfdd_options=\"-A 0.0.0.0\"\n")
 	sb.WriteString("\n")
 	sb.WriteString("# The FRR_DEFAULT_PROFILE sets the default configuration profile.\n")
 	sb.WriteString("# Use \"datacenter\" for data center deployments.\n")
@@ -618,6 +618,23 @@ func (r *NovaRouteClusterReconciler) reconcileDaemonSet(ctx context.Context, clu
 		SecurityContext: &corev1.SecurityContext{
 			Capabilities: &corev1.Capabilities{
 				Add: []corev1.Capability{"NET_ADMIN", "NET_RAW", "SYS_ADMIN"},
+			},
+		},
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "bgp",
+				ContainerPort: 179,
+				Protocol:      corev1.ProtocolTCP,
+			},
+			{
+				Name:          "bfd",
+				ContainerPort: 3784,
+				Protocol:      corev1.ProtocolUDP,
+			},
+			{
+				Name:          "bfd-multi",
+				ContainerPort: 4784,
+				Protocol:      corev1.ProtocolUDP,
 			},
 		},
 		VolumeMounts: []corev1.VolumeMount{

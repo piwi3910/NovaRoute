@@ -87,9 +87,9 @@ data:
     # Options for the daemons.
     mgmtd_options="--log syslog informational"
     zebra_options="-A 127.0.0.1 -s 90000000"
-    bgpd_options="-A 127.0.0.1 -p 0"
+    bgpd_options="-A 127.0.0.1"
     ospfd_options="-A 127.0.0.1"
-    bfdd_options="-A 127.0.0.1"
+    bfdd_options="-A 0.0.0.0"
 
     # The FRR_DEFAULT_PROFILE sets the default configuration profile.
     # Use "datacenter" for data center deployments.
