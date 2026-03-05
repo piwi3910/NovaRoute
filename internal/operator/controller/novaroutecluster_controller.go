@@ -507,7 +507,7 @@ func (r *NovaRouteClusterReconciler) renderDaemonsFile(bgpd, ospfd, bfdd bool) s
 	sb.WriteString("# Options for the daemons.\n")
 	sb.WriteString("mgmtd_options=\"--log syslog informational\"\n")
 	sb.WriteString("zebra_options=\"-A 127.0.0.1 -s 90000000\"\n")
-	sb.WriteString("bgpd_options=\"-A 127.0.0.1 -p 0\"\n")
+	sb.WriteString("bgpd_options=\"-A 127.0.0.1\"\n")
 	sb.WriteString("ospfd_options=\"-A 127.0.0.1\"\n")
 	sb.WriteString("bfdd_options=\"-A 127.0.0.1\"\n")
 	sb.WriteString("\n")
