@@ -311,12 +311,17 @@ spec:
                   wget -q -O- "http://127.0.0.1:${METRICS_PORT}/healthz" 2>/dev/null) || HEALTH="FAIL"
                 READYZ=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
                   wget -q -O- "http://127.0.0.1:${METRICS_PORT}/readyz" 2>/dev/null) || READYZ="FAIL"
-                METRICS_HEAD=$(kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
-                  wget -q -O- "http://127.0.0.1:${METRICS_PORT}/metrics" 2>/dev/null | head -1) || METRICS_HEAD=""
+                # Use wget -O /dev/null to avoid pipe issues with large metrics output
+                if kubectl exec "$POD" -n "$NAMESPACE" -c "$AGENT_CONTAINER" -- \
+                  wget -q -O /dev/null "http://127.0.0.1:${METRICS_PORT}/metrics" 2>/dev/null; then
+                  METRICS_OK_FLAG="ok"
+                else
+                  METRICS_OK_FLAG="FAIL"
+                fi
 
-                if [ "$HEALTH" = "FAIL" ] || [ "$READYZ" = "FAIL" ] || [ -z "$METRICS_HEAD" ]; then
+                if [ "$HEALTH" = "FAIL" ] || [ "$READYZ" = "FAIL" ] || [ "$METRICS_OK_FLAG" = "FAIL" ]; then
                   METRICS_BAD=$((METRICS_BAD+1))
-                  echo "    Pod $POD: health=$HEALTH readyz=$READYZ metrics=$([ -n "$METRICS_HEAD" ] && echo 'ok' || echo 'empty')"
+                  echo "    Pod $POD: health=$HEALTH readyz=$READYZ metrics=$METRICS_OK_FLAG"
                 fi
               done
 
