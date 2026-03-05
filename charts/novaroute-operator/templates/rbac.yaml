@@ -61,6 +61,15 @@ rules:
       - update
       - patch
       - delete
+  # Nodes (needed to grant agent RBAC for node discovery)
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
   # Events
   - apiGroups:
       - ""
