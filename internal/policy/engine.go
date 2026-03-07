@@ -6,7 +6,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/piwi3910/NovaRoute/internal/config"
+	"github.com/azrtydxb/NovaRoute/internal/config"
 	"go.uber.org/zap"
 )
 

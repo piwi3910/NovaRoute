@@ -6,7 +6,7 @@
 
 NovaRoute is a unified routing control service that centralizes BGP, BFD, and OSPF management on each Kubernetes node. It acts as the single owner of the [FRR (Free Range Routing)](https://frrouting.org/) daemon, exposing a gRPC API over a Unix domain socket so that multiple clients can safely share one routing stack without conflicting.
 
-Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer VIPs), NovaNet (pod/node networking), and human administrators each declare routing intents through the API. NovaRoute validates every intent against ownership policies, reconciles the desired state into FRR via vtysh, and provides full observability through status queries and event streaming.
+Clients such as [NovaEdge](https://github.com/azrtydxb/novaedge) (load balancer VIPs), NovaNet (pod/node networking), and human administrators each declare routing intents through the API. NovaRoute validates every intent against ownership policies, reconciles the desired state into FRR via vtysh, and provides full observability through status queries and event streaming.
 
 ---
 
@@ -52,6 +52,6 @@ Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer 
 
 ## Related Projects
 
-- **[NovaEdge](https://github.com/piwi3910/novaedge)** -- Kubernetes load balancer, reverse proxy, and SD-WAN gateway (primary consumer of NovaRoute)
+- **[NovaEdge](https://github.com/azrtydxb/novaedge)** -- Kubernetes load balancer, reverse proxy, and SD-WAN gateway (primary consumer of NovaRoute)
 - **NovaNet** -- Kubernetes CNI and pod networking (future consumer)
 - **[FRR](https://frrouting.org/)** -- Free Range Routing, the routing engine NovaRoute controls

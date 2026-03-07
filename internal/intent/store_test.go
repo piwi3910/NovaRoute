@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	v1 "github.com/piwi3910/NovaRoute/api/v1"
+	v1 "github.com/azrtydxb/NovaRoute/api/v1"
 	"go.uber.org/zap"
 )
 

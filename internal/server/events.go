@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/piwi3910/NovaRoute/api/v1"
-	metrics "github.com/piwi3910/NovaRoute/internal/metrics"
+	pb "github.com/azrtydxb/NovaRoute/api/v1"
+	metrics "github.com/azrtydxb/NovaRoute/internal/metrics"
 )
 
 // EventBus provides a publish-subscribe mechanism for RouteEvents. Subscribers

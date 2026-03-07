@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	novaroutev1alpha1 "github.com/piwi3910/NovaRoute/api/v1alpha1"
+	novaroutev1alpha1 "github.com/azrtydxb/NovaRoute/api/v1alpha1"
 )
 
 func newScheme() *runtime.Scheme {
@@ -38,7 +38,7 @@ func newTestCluster() *novaroutev1alpha1.NovaRouteCluster {
 		},
 		Spec: novaroutev1alpha1.NovaRouteClusterSpec{
 			Version:         "v0.1.0",
-			ImageRepository: "ghcr.io/piwi3910/novaroute",
+			ImageRepository: "ghcr.io/azrtydxb/novaroute",
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Agent: novaroutev1alpha1.NovaRouteAgentSpec{
 				MetricsPort: int32Ptr(9102),
@@ -68,7 +68,7 @@ func newTestCluster() *novaroutev1alpha1.NovaRouteCluster {
 				},
 			},
 			FRR: novaroutev1alpha1.FRRSpec{
-				Image: "ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1",
+				Image: "ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1",
 				Daemons: &novaroutev1alpha1.FRRDaemons{
 					BGPD:  boolPtr(true),
 					OSPFD: boolPtr(true),
@@ -408,7 +408,7 @@ func verifyAgentContainer(t *testing.T, podSpec corev1.PodSpec) {
 	if agentContainer.Name != "novaroute-agent" {
 		t.Errorf("expected first container name 'novaroute-agent', got %q", agentContainer.Name)
 	}
-	if agentContainer.Image != "ghcr.io/piwi3910/novaroute/novaroute-agent:v0.1.0" {
+	if agentContainer.Image != "ghcr.io/azrtydxb/novaroute/novaroute-agent:v0.1.0" {
 		t.Errorf("unexpected agent image: %q", agentContainer.Image)
 	}
 	if agentContainer.SecurityContext == nil || agentContainer.SecurityContext.Capabilities == nil {
@@ -507,10 +507,10 @@ func TestGetAgentImage(t *testing.T) {
 			cluster: &novaroutev1alpha1.NovaRouteCluster{
 				Spec: novaroutev1alpha1.NovaRouteClusterSpec{
 					Version:         "v0.2.0",
-					ImageRepository: "ghcr.io/piwi3910/novaroute",
+					ImageRepository: "ghcr.io/azrtydxb/novaroute",
 				},
 			},
-			expected: "ghcr.io/piwi3910/novaroute/novaroute-agent:v0.2.0",
+			expected: "ghcr.io/azrtydxb/novaroute/novaroute-agent:v0.2.0",
 		},
 		{
 			name: "override image",
@@ -531,7 +531,7 @@ func TestGetAgentImage(t *testing.T) {
 					Version: "v1.0.0",
 				},
 			},
-			expected: "ghcr.io/piwi3910/novaroute/novaroute-agent:v1.0.0",
+			expected: "ghcr.io/azrtydxb/novaroute/novaroute-agent:v1.0.0",
 		},
 	}
 
@@ -561,7 +561,7 @@ func TestGetFRRImage(t *testing.T) {
 					FRR: novaroutev1alpha1.FRRSpec{},
 				},
 			},
-			expected: "ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1",
+			expected: "ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1",
 		},
 		{
 			name: "override FRR image",

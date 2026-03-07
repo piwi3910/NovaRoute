@@ -4,7 +4,7 @@ metadata:
   name: novaroute
   namespace: argocd
   annotations:
-    argocd-image-updater.argoproj.io/image-list: operator=ghcr.io/piwi3910/novaroute/novaroute-operator
+    argocd-image-updater.argoproj.io/image-list: operator=ghcr.io/azrtydxb/novaroute/novaroute-operator
     argocd-image-updater.argoproj.io/operator.update-strategy: latest
     argocd-image-updater.argoproj.io/operator.helm.image-name: image.repository
     argocd-image-updater.argoproj.io/operator.helm.image-tag: image.tag
@@ -13,14 +13,14 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/piwi3910/NovaRoute
+    repoURL: https://github.com/azrtydxb/NovaRoute
     path: charts/novaroute-operator
     targetRevision: main
     helm:
       releaseName: novaroute
       valuesObject:
         image:
-          repository: ghcr.io/piwi3910/novaroute/novaroute-operator
+          repository: ghcr.io/azrtydxb/novaroute/novaroute-operator
           tag: latest
   destination:
     server: https://kubernetes.default.svc

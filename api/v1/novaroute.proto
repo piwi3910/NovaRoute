@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package novaroute.v1;
 
-option go_package = "github.com/piwi3910/NovaRoute/api/v1";
+option go_package = "github.com/azrtydxb/NovaRoute/api/v1";
 
 // RouteControl is the main NovaRoute API service.
 // Clients (NovaEdge, NovaNet, Admin) connect via Unix domain socket

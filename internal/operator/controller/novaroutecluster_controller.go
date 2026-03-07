@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	novaroutev1alpha1 "github.com/piwi3910/NovaRoute/api/v1alpha1"
+	novaroutev1alpha1 "github.com/azrtydxb/NovaRoute/api/v1alpha1"
 )
 
 // errNotClientObject is returned when a runtime.Object does not implement client.Object.
@@ -892,7 +892,7 @@ func (r *NovaRouteClusterReconciler) getAgentImage(cluster *novaroutev1alpha1.No
 	if cluster.Spec.Agent.Image != "" {
 		return cluster.Spec.Agent.Image
 	}
-	repo := "ghcr.io/piwi3910/novaroute"
+	repo := "ghcr.io/azrtydxb/novaroute"
 	if cluster.Spec.ImageRepository != "" {
 		repo = cluster.Spec.ImageRepository
 	}
@@ -903,7 +903,7 @@ func (r *NovaRouteClusterReconciler) getFRRImage(cluster *novaroutev1alpha1.Nova
 	if cluster.Spec.FRR.Image != "" {
 		return cluster.Spec.FRR.Image
 	}
-	return "ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1"
+	return "ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1"
 }
 
 func (r *NovaRouteClusterReconciler) createOrUpdate(ctx context.Context, obj client.Object) error {

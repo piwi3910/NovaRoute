@@ -9,7 +9,7 @@ fullnameOverride: ""
 agent:
   image:
     # -- Agent image repository
-    repository: ghcr.io/piwi3910/novaroute/novaroute-agent
+    repository: ghcr.io/azrtydxb/novaroute/novaroute-agent
     # -- Agent image tag (defaults to chart appVersion)
     tag: ""
     # -- Image pull policy
@@ -35,7 +35,7 @@ agent:
 frr:
   image:
     # -- FRR image
-    repository: ghcr.io/piwi3910/novaroute/novaroute-frr
+    repository: ghcr.io/azrtydxb/novaroute/novaroute-frr
     # -- FRR image tag
     tag: "10.5.1"
     # -- Image pull policy
