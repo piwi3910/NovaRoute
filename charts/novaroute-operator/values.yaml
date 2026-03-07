@@ -112,6 +112,18 @@ metrics:
   enabled: true
   # -- Metrics service port
   port: 8080
+  # -- ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    # -- Create a ServiceMonitor resource
+    enabled: false
+    # -- Scrape interval
+    interval: "30s"
+    # -- Scrape timeout
+    scrapeTimeout: "10s"
+    # -- Additional labels for the ServiceMonitor
+    labels: {}
+    # -- Metric relabeling configs
+    metricRelabelings: []
 
 # -- Health probe configuration
 health:
