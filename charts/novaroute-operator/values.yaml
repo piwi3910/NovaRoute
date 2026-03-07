@@ -7,7 +7,7 @@ replicaCount: 1
 # -- Image configuration
 image:
   # -- Image repository
-  repository: ghcr.io/piwi3910/novaroute/novaroute-operator
+  repository: ghcr.io/azrtydxb/novaroute/novaroute-operator
   # -- Image pull policy
   pullPolicy: IfNotPresent
   # -- Image tag (defaults to chart appVersion)

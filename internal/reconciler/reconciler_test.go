@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	v1 "github.com/piwi3910/NovaRoute/api/v1"
-	"github.com/piwi3910/NovaRoute/internal/intent"
+	v1 "github.com/azrtydxb/NovaRoute/api/v1"
+	"github.com/azrtydxb/NovaRoute/internal/intent"
 	"go.uber.org/zap"
 )
 

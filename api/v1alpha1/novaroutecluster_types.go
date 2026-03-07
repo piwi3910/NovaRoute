@@ -26,7 +26,7 @@ type NovaRouteClusterSpec struct {
 	Version string `json:"version"`
 
 	// ImageRepository is the container image repository.
-	// +kubebuilder:default="ghcr.io/piwi3910/novaroute"
+	// +kubebuilder:default="ghcr.io/azrtydxb/novaroute"
 	// +optional
 	ImageRepository string `json:"imageRepository,omitempty"`
 
@@ -195,7 +195,7 @@ type OwnerSpec struct {
 // FRRSpec defines the FRR sidecar configuration.
 type FRRSpec struct {
 	// Image for the FRR sidecar.
-	// +kubebuilder:default="ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1"
+	// +kubebuilder:default="ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1"
 	// +optional
 	Image string `json:"image,omitempty"`
 

@@ -5,10 +5,10 @@
     <strong>Node-local routing control plane for Kubernetes — BGP, BFD, and OSPF via FRR</strong>
   </p>
   <p align="center">
-    <a href="https://github.com/piwi3910/NovaRoute/actions/workflows/ci.yml"><img src="https://github.com/piwi3910/NovaRoute/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/piwi3910/NovaRoute/releases/latest"><img src="https://img.shields.io/github/v/release/piwi3910/NovaRoute?style=flat&color=blue" alt="Release"></a>
-    <a href="https://pkg.go.dev/github.com/piwi3910/NovaRoute"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go"></a>
-    <a href="https://github.com/piwi3910/NovaRoute/pkgs/container/novaroute-agent"><img src="https://img.shields.io/badge/GHCR-amd64%20%7C%20arm64-purple?logo=docker" alt="Docker"></a>
+    <a href="https://github.com/azrtydxb/NovaRoute/actions/workflows/ci.yml"><img src="https://github.com/azrtydxb/NovaRoute/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/azrtydxb/NovaRoute/releases/latest"><img src="https://img.shields.io/github/v/release/azrtydxb/NovaRoute?style=flat&color=blue" alt="Release"></a>
+    <a href="https://pkg.go.dev/github.com/azrtydxb/NovaRoute"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go"></a>
+    <a href="https://github.com/azrtydxb/NovaRoute/pkgs/container/novaroute-agent"><img src="https://img.shields.io/badge/GHCR-amd64%20%7C%20arm64-purple?logo=docker" alt="Docker"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License"></a>
   </p>
 </p>
@@ -33,7 +33,7 @@ NovaRoute is a unified routing control service that centralizes BGP, BFD, and OS
               └────────────────────────────┘
 ```
 
-**[Full Documentation](https://piwi3910.github.io/NovaRoute)** · **[API Reference](https://piwi3910.github.io/NovaRoute/api-reference)** · **[CLI Reference](https://piwi3910.github.io/NovaRoute/cli-reference)**
+**[Full Documentation](https://azrtydxb.github.io/NovaRoute)** · **[API Reference](https://azrtydxb.github.io/NovaRoute/api-reference)** · **[CLI Reference](https://azrtydxb.github.io/NovaRoute/cli-reference)**
 
 ---
 
@@ -113,7 +113,7 @@ Note: the code default for `metrics_address` is `:9100`. The recommended product
 
 Environment variable overrides: `NOVAROUTE_BGP_LOCAL_AS`, `NOVAROUTE_BGP_ROUTER_ID`. Token values support `${ENV_VAR}` expansion.
 
-See the [Configuration Guide](https://piwi3910.github.io/NovaRoute/configuration) for all options.
+See the [Configuration Guide](https://azrtydxb.github.io/NovaRoute/configuration) for all options.
 
 ## Architecture
 
@@ -142,7 +142,7 @@ See the [Configuration Guide](https://piwi3910.github.io/NovaRoute/configuration
 | **Reconciler** | Diffs desired vs applied state, generates FRR commands, monitors FRR state |
 | **FRR Client** | Translates intents into `vtysh -c` batched commands |
 
-See the [Architecture Guide](https://piwi3910.github.io/NovaRoute/architecture) for detailed component diagrams and data flow.
+See the [Architecture Guide](https://azrtydxb.github.io/NovaRoute/architecture) for detailed component diagrams and data flow.
 
 ## Repository Structure
 
@@ -192,7 +192,7 @@ make proto
 
 ## Contributing
 
-We welcome contributions! See the [Contributing Guide](https://piwi3910.github.io/NovaRoute/contributing) for development setup, testing, and PR guidelines.
+We welcome contributions! See the [Contributing Guide](https://azrtydxb.github.io/NovaRoute/contributing) for development setup, testing, and PR guidelines.
 
 ## License
 
@@ -200,6 +200,6 @@ Apache-2.0. See [LICENSE](LICENSE) for details. FRR itself is GPL-2.0.
 
 ## Related Projects
 
-- **[NovaEdge](https://github.com/piwi3910/novaedge)** — Kubernetes load balancer, reverse proxy, and SD-WAN gateway (primary NovaRoute consumer)
+- **[NovaEdge](https://github.com/azrtydxb/novaedge)** — Kubernetes load balancer, reverse proxy, and SD-WAN gateway (primary NovaRoute consumer)
 - **NovaNet** — Kubernetes CNI and pod networking (future consumer)
 - **[FRR](https://frrouting.org/)** — Free Range Routing, the routing engine NovaRoute controls

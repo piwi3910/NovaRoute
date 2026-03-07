@@ -17,8 +17,8 @@ import (
 	ctrlzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	novaroutev1alpha1 "github.com/piwi3910/NovaRoute/api/v1alpha1"
-	"github.com/piwi3910/NovaRoute/internal/operator/controller"
+	novaroutev1alpha1 "github.com/azrtydxb/NovaRoute/api/v1alpha1"
+	"github.com/azrtydxb/NovaRoute/internal/operator/controller"
 )
 
 // Build-time variables set via ldflags.

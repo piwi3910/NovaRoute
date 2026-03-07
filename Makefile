@@ -5,7 +5,7 @@ BINARY_DIR       := bin
 AGENT_BINARY     := $(BINARY_DIR)/novaroute-agent
 CTL_BINARY       := $(BINARY_DIR)/novaroutectl
 OPERATOR_BINARY  := $(BINARY_DIR)/novaroute-operator
-DOCKER_IMAGE     := ghcr.io/piwi3910/novaroute/novaroute-agent
+DOCKER_IMAGE     := ghcr.io/azrtydxb/novaroute/novaroute-agent
 DOCKER_TAG       := latest
 
 GO       := go

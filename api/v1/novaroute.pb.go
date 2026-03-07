@@ -2561,7 +2561,7 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"EnableOSPF\x12\x1f.novaroute.v1.EnableOSPFRequest\x1a .novaroute.v1.EnableOSPFResponse\x12R\n" +
 	"\vDisableOSPF\x12 .novaroute.v1.DisableOSPFRequest\x1a!.novaroute.v1.DisableOSPFResponse\x12L\n" +
 	"\tGetStatus\x12\x1e.novaroute.v1.GetStatusRequest\x1a\x1f.novaroute.v1.GetStatusResponse\x12M\n" +
-	"\fStreamEvents\x12!.novaroute.v1.StreamEventsRequest\x1a\x18.novaroute.v1.RouteEvent0\x01B&Z$github.com/piwi3910/NovaRoute/api/v1b\x06proto3"
+	"\fStreamEvents\x12!.novaroute.v1.StreamEventsRequest\x1a\x18.novaroute.v1.RouteEvent0\x01B&Z$github.com/azrtydxb/NovaRoute/api/v1b\x06proto3"
 
 var (
 	file_api_v1_novaroute_proto_rawDescOnce sync.Once

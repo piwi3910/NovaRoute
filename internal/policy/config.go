@@ -5,7 +5,7 @@
 package policy
 
 import (
-	"github.com/piwi3910/NovaRoute/internal/config"
+	"github.com/azrtydxb/NovaRoute/internal/config"
 )
 
 // Config holds the policy configuration for all owners.
