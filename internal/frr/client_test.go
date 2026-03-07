@@ -36,7 +36,7 @@ if [ -n "$SHOW_CMD" ]; then
     cat "$RECORD_DIR/response"
   fi
 else
-  cat > "$RECORD_DIR/stdin"
+  cat >> "$RECORD_DIR/stdin"
   if [ -f "$RECORD_DIR/response" ]; then
     cat "$RECORD_DIR/response"
   fi
