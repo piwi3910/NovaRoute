@@ -69,6 +69,7 @@ nav:
   - API Reference: api-reference.md
   - Monitoring: monitoring.md
   - Troubleshooting: troubleshooting.md
+  - Upgrade Guide: upgrade-guide.md
   - Contributing: contributing.md
 
 extra:
