@@ -71,6 +71,21 @@ rbac:
   # -- Create RBAC resources
   create: true
 
+# -- Metrics configuration
+metrics:
+  # -- ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    # -- Create a ServiceMonitor resource
+    enabled: false
+    # -- Scrape interval
+    interval: "30s"
+    # -- Scrape timeout
+    scrapeTimeout: "10s"
+    # -- Additional labels for the ServiceMonitor
+    labels: {}
+    # -- Metric relabeling configs
+    metricRelabelings: []
+
 # -- PostSync test hooks for ArgoCD CT (Continuous Testing)
 tests:
   image: bitnami/kubectl:latest

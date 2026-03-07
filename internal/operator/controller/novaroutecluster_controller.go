@@ -4,9 +4,12 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,7 +25,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	novaroutev1alpha1 "github.com/azrtydxb/NovaRoute/api/v1alpha1"
 )
@@ -36,6 +41,10 @@ var (
 
 const (
 	novaRouteClusterFinalizer = "novaroute.io/finalizer"
+
+	// rotationHashAnnotation is set on the DaemonSet pod template to trigger
+	// rolling restarts when referenced Secrets change.
+	rotationHashAnnotation = "novaroute.io/secret-hash"
 
 	// ConditionTypeReady indicates the overall readiness of the cluster.
 	ConditionTypeReady = "Ready"
@@ -550,6 +559,13 @@ func (r *NovaRouteClusterReconciler) reconcileDaemonSet(ctx context.Context, clu
 		metricsPort = *cluster.Spec.Agent.MetricsPort
 	}
 
+	// Compute a hash of all referenced Secrets so that changes trigger a
+	// rolling restart of agent pods.
+	secretHash, err := r.computeSecretHash(ctx, cluster)
+	if err != nil {
+		return fmt.Errorf("computing secret hash: %w", err)
+	}
+
 	// Resolve agent image
 	agentImage := r.getAgentImage(cluster)
 	frrImage := r.getFRRImage(cluster)
@@ -699,6 +715,7 @@ func (r *NovaRouteClusterReconciler) reconcileDaemonSet(ctx context.Context, clu
 						"prometheus.io/scrape": "true",
 						"prometheus.io/port":   fmt.Sprintf("%d", metricsPort),
 						"prometheus.io/path":   "/metrics",
+						rotationHashAnnotation: secretHash,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -878,6 +895,70 @@ func (r *NovaRouteClusterReconciler) updateStatus(ctx context.Context, cluster *
 }
 
 // ----------------------------------------------------------------------------
+// Secret rotation
+// ----------------------------------------------------------------------------
+
+// computeSecretHash computes a SHA-256 hash of all Secret data referenced by
+// the NovaRouteCluster spec. When the hash changes, the DaemonSet pod template
+// annotation changes, triggering a rolling restart.
+func (r *NovaRouteClusterReconciler) computeSecretHash(ctx context.Context, cluster *novaroutev1alpha1.NovaRouteCluster) (string, error) {
+	h := sha256.New()
+
+	// Collect all referenced secret names (sorted for deterministic hashing).
+	type secretRef struct {
+		name string
+		key  string
+	}
+	var refs []secretRef
+
+	if cluster.Spec.Agent.BGP != nil {
+		for _, peer := range cluster.Spec.Agent.BGP.Peers {
+			if peer.PasswordSecretRef != nil {
+				refs = append(refs, secretRef{
+					name: peer.PasswordSecretRef.Name,
+					key:  peer.PasswordSecretRef.Key,
+				})
+			}
+		}
+	}
+
+	if len(refs) == 0 {
+		return "", nil
+	}
+
+	// Sort by name then key for deterministic ordering.
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].name != refs[j].name {
+			return refs[i].name < refs[j].name
+		}
+		return refs[i].key < refs[j].key
+	})
+
+	for _, ref := range refs {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      ref.name,
+			Namespace: cluster.Namespace,
+		}, secret); err != nil {
+			if errors.IsNotFound(err) {
+				// Secret doesn't exist yet; hash the name so it changes when created.
+				if _, werr := fmt.Fprintf(h, "%s/%s=<missing>\n", ref.name, ref.key); werr != nil {
+					return "", fmt.Errorf("writing to hash: %w", werr)
+				}
+				continue
+			}
+			return "", fmt.Errorf("getting secret %s/%s: %w", cluster.Namespace, ref.name, err)
+		}
+		val := secret.Data[ref.key]
+		if _, err := fmt.Fprintf(h, "%s/%s=%s\n", ref.name, ref.key, string(val)); err != nil {
+			return "", fmt.Errorf("writing to hash: %w", err)
+		}
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -996,5 +1077,50 @@ func (r *NovaRouteClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.ConfigMap{}).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findClustersReferencingSecret)).
 		Complete(r)
+}
+
+// findClustersReferencingSecret returns reconcile requests for all
+// NovaRouteCluster resources that reference the given Secret (e.g. via
+// BGP peer PasswordSecretRef). This enables Secret rotation: when a
+// Secret is updated, the controller re-reconciles and updates the
+// secret-hash annotation on the DaemonSet, triggering a rolling restart.
+func (r *NovaRouteClusterReconciler) findClustersReferencingSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	clusterList := &novaroutev1alpha1.NovaRouteClusterList{}
+	if err := r.List(ctx, clusterList, client.InNamespace(secret.Namespace)); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range clusterList.Items {
+		cluster := &clusterList.Items[i]
+		if r.clusterReferencesSecret(cluster, secret.Name) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      cluster.Name,
+					Namespace: cluster.Namespace,
+				},
+			})
+		}
+	}
+	return requests
+}
+
+// clusterReferencesSecret returns true if the NovaRouteCluster spec
+// references a Secret with the given name.
+func (r *NovaRouteClusterReconciler) clusterReferencesSecret(cluster *novaroutev1alpha1.NovaRouteCluster, secretName string) bool {
+	if cluster.Spec.Agent.BGP != nil {
+		for _, peer := range cluster.Spec.Agent.BGP.Peers {
+			if peer.PasswordSecretRef != nil && peer.PasswordSecretRef.Name == secretName {
+				return true
+			}
+		}
+	}
+	return false
 }
