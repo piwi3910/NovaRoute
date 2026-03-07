@@ -78,6 +78,7 @@ type BFDIntent struct {
 }
 
 // OSPFIntent represents an OSPF interface intent with metadata.
+// When IPv6 is true, OSPFv3 commands are used instead of IPv4 OSPF.
 type OSPFIntent struct {
 	Owner         string
 	InterfaceName string
@@ -86,6 +87,7 @@ type OSPFIntent struct {
 	Cost          uint32
 	HelloInterval uint32
 	DeadInterval  uint32
+	IPv6          bool
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

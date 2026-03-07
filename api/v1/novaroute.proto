@@ -185,8 +185,9 @@ message EnableOSPFRequest {
   string area_id = 4;
   bool passive = 5;
   uint32 cost = 6;
-  uint32 hello_interval = 7;
-  uint32 dead_interval = 8;
+  uint32 hello_interval = 7;  // IPv4 OSPF only; ignored for OSPFv3
+  uint32 dead_interval = 8;   // IPv4 OSPF only; ignored for OSPFv3
+  bool ipv6 = 9;              // When true, uses OSPFv3 (ipv6 ospf6) commands
 }
 
 message EnableOSPFResponse {}
@@ -250,6 +251,7 @@ message OSPFInterfaceStatus {
   string owner = 4;
   uint32 neighbor_count = 5;
   uint32 cost = 6;
+  bool ipv6 = 7;              // True if this is an OSPFv3 (IPv6) interface
 }
 
 message FRRStatus {

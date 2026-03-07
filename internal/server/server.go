@@ -937,6 +937,7 @@ func (s *Server) EnableOSPF(ctx context.Context, req *v1.EnableOSPFRequest) (*v1
 		Cost:          req.GetCost(),
 		HelloInterval: req.GetHelloInterval(),
 		DeadInterval:  req.GetDeadInterval(),
+		IPv6:          req.GetIpv6(),
 	}
 	if ospfIntent.Cost > 65535 {
 		return nil, status.Errorf(codes.InvalidArgument, "OSPF cost must be between 1 and 65535, got %d", ospfIntent.Cost)
@@ -944,14 +945,21 @@ func (s *Server) EnableOSPF(ctx context.Context, req *v1.EnableOSPFRequest) (*v1
 	if ospfIntent.Cost == 0 {
 		ospfIntent.Cost = 10
 	}
-	if ospfIntent.HelloInterval == 0 {
-		ospfIntent.HelloInterval = 10
-	}
-	if ospfIntent.DeadInterval == 0 {
-		ospfIntent.DeadInterval = 40
-	}
-	if ospfIntent.DeadInterval > 0 && ospfIntent.HelloInterval > 0 && ospfIntent.DeadInterval < ospfIntent.HelloInterval {
-		return nil, status.Errorf(codes.InvalidArgument, "dead_interval (%d) must be >= hello_interval (%d)", ospfIntent.DeadInterval, ospfIntent.HelloInterval)
+	if ospfIntent.IPv6 {
+		// OSPFv3 does not support per-interface hello/dead intervals in FRR;
+		// clear them so the reconciler does not try to apply them.
+		ospfIntent.HelloInterval = 0
+		ospfIntent.DeadInterval = 0
+	} else {
+		if ospfIntent.HelloInterval == 0 {
+			ospfIntent.HelloInterval = 10
+		}
+		if ospfIntent.DeadInterval == 0 {
+			ospfIntent.DeadInterval = 40
+		}
+		if ospfIntent.DeadInterval > 0 && ospfIntent.HelloInterval > 0 && ospfIntent.DeadInterval < ospfIntent.HelloInterval {
+			return nil, status.Errorf(codes.InvalidArgument, "dead_interval (%d) must be >= hello_interval (%d)", ospfIntent.DeadInterval, ospfIntent.HelloInterval)
+		}
 	}
 
 	// Store intent.
@@ -1251,6 +1259,7 @@ func buildOSPFStatusList(
 				AreaId:        o.AreaID,
 				Owner:         owner,
 				Cost:          o.Cost,
+				Ipv6:          o.IPv6,
 			}
 			if frrClient != nil {
 				os.State = stateConfigured

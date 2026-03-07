@@ -491,6 +491,88 @@ func TestOSPFDisableInterface(t *testing.T) {
 	assertStdinContains(t, stdin, "no ip ospf area 0.0.0.0")
 }
 
+// --- OSPFv3 (IPv6) tests ---
+
+func TestOSPFv3EnableInterface(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+
+	err := client.EnableOSPFv3Interface(ctx, "eth0", "0.0.0.0", true, 20)
+	if err != nil {
+		t.Fatalf("EnableOSPFv3Interface error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "interface eth0")
+	assertStdinContains(t, stdin, "ipv6 ospf6 area 0.0.0.0")
+	assertStdinContains(t, stdin, "ipv6 ospf6 cost 20")
+	assertStdinContains(t, stdin, "router ospf6")
+	assertStdinContains(t, stdin, "passive-interface eth0")
+}
+
+func TestOSPFv3EnableInterfaceNoCostNotPassive(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+
+	err := client.EnableOSPFv3Interface(ctx, "eth1", "0.0.0.1", false, 0)
+	if err != nil {
+		t.Fatalf("EnableOSPFv3Interface error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "interface eth1")
+	assertStdinContains(t, stdin, "ipv6 ospf6 area 0.0.0.1")
+
+	// Cost should not be present when 0.
+	if strings.Contains(stdin, "cost") {
+		t.Errorf("unexpected cost in stdin:\n%s", stdin)
+	}
+
+	// Passive should not be present when false.
+	if strings.Contains(stdin, "passive") {
+		t.Errorf("unexpected passive in stdin:\n%s", stdin)
+	}
+
+	// Should not contain IPv4 OSPF commands.
+	if strings.Contains(stdin, "ip ospf") {
+		t.Errorf("unexpected 'ip ospf' (IPv4) command in OSPFv3 config:\n%s", stdin)
+	}
+}
+
+func TestOSPFv3DisableInterface(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+
+	err := client.DisableOSPFv3Interface(ctx, "eth0", "0.0.0.0", false)
+	if err != nil {
+		t.Fatalf("DisableOSPFv3Interface error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "interface eth0")
+	assertStdinContains(t, stdin, "no ipv6 ospf6 area 0.0.0.0")
+
+	// Should not contain IPv4 OSPF commands.
+	if strings.Contains(stdin, "no ip ospf") {
+		t.Errorf("unexpected 'no ip ospf' (IPv4) command in OSPFv3 config:\n%s", stdin)
+	}
+}
+
+func TestOSPFv3DisableInterfaceWithPassive(t *testing.T) {
+	client, dir := setupFakeVtysh(t)
+	ctx := context.Background()
+
+	err := client.DisableOSPFv3Interface(ctx, "eth0", "0.0.0.0", true)
+	if err != nil {
+		t.Fatalf("DisableOSPFv3Interface error: %v", err)
+	}
+
+	stdin := readRecordedStdin(t, dir)
+	assertStdinContains(t, stdin, "no ipv6 ospf6 area 0.0.0.0")
+	assertStdinContains(t, stdin, "router ospf6")
+	assertStdinContains(t, stdin, "no passive-interface eth0")
+}
+
 // --- AFI resolution tests ---
 
 func TestResolveAFICLI(t *testing.T) {

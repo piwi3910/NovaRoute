@@ -1453,8 +1453,9 @@ type EnableOSPFRequest struct {
 	AreaId        string                 `protobuf:"bytes,4,opt,name=area_id,json=areaId,proto3" json:"area_id,omitempty"`
 	Passive       bool                   `protobuf:"varint,5,opt,name=passive,proto3" json:"passive,omitempty"`
 	Cost          uint32                 `protobuf:"varint,6,opt,name=cost,proto3" json:"cost,omitempty"`
-	HelloInterval uint32                 `protobuf:"varint,7,opt,name=hello_interval,json=helloInterval,proto3" json:"hello_interval,omitempty"`
-	DeadInterval  uint32                 `protobuf:"varint,8,opt,name=dead_interval,json=deadInterval,proto3" json:"dead_interval,omitempty"`
+	HelloInterval uint32                 `protobuf:"varint,7,opt,name=hello_interval,json=helloInterval,proto3" json:"hello_interval,omitempty"` // IPv4 OSPF only; ignored for OSPFv3
+	DeadInterval  uint32                 `protobuf:"varint,8,opt,name=dead_interval,json=deadInterval,proto3" json:"dead_interval,omitempty"`    // IPv4 OSPF only; ignored for OSPFv3
+	Ipv6          bool                   `protobuf:"varint,9,opt,name=ipv6,proto3" json:"ipv6,omitempty"`                                        // When true, uses OSPFv3 (ipv6 ospf6) commands
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1543,6 +1544,13 @@ func (x *EnableOSPFRequest) GetDeadInterval() uint32 {
 		return x.DeadInterval
 	}
 	return 0
+}
+
+func (x *EnableOSPFRequest) GetIpv6() bool {
+	if x != nil {
+		return x.Ipv6
+	}
+	return false
 }
 
 type EnableOSPFResponse struct {
@@ -2081,6 +2089,7 @@ type OSPFInterfaceStatus struct {
 	Owner         string                 `protobuf:"bytes,4,opt,name=owner,proto3" json:"owner,omitempty"`
 	NeighborCount uint32                 `protobuf:"varint,5,opt,name=neighbor_count,json=neighborCount,proto3" json:"neighbor_count,omitempty"`
 	Cost          uint32                 `protobuf:"varint,6,opt,name=cost,proto3" json:"cost,omitempty"`
+	Ipv6          bool                   `protobuf:"varint,7,opt,name=ipv6,proto3" json:"ipv6,omitempty"` // True if this is an OSPFv3 (IPv6) interface
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2155,6 +2164,13 @@ func (x *OSPFInterfaceStatus) GetCost() uint32 {
 		return x.Cost
 	}
 	return 0
+}
+
+func (x *OSPFInterfaceStatus) GetIpv6() bool {
+	if x != nil {
+		return x.Ipv6
+	}
+	return false
 }
 
 type FRRStatus struct {
@@ -2437,7 +2453,7 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12!\n" +
 	"\fpeer_address\x18\x03 \x01(\tR\vpeerAddress\"\x14\n" +
-	"\x12DisableBFDResponse\"\xf9\x01\n" +
+	"\x12DisableBFDResponse\"\x8d\x02\n" +
 	"\x11EnableOSPFRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12%\n" +
@@ -2446,7 +2462,8 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\apassive\x18\x05 \x01(\bR\apassive\x12\x12\n" +
 	"\x04cost\x18\x06 \x01(\rR\x04cost\x12%\n" +
 	"\x0ehello_interval\x18\a \x01(\rR\rhelloInterval\x12#\n" +
-	"\rdead_interval\x18\b \x01(\rR\fdeadInterval\"\x14\n" +
+	"\rdead_interval\x18\b \x01(\rR\fdeadInterval\x12\x12\n" +
+	"\x04ipv6\x18\t \x01(\bR\x04ipv6\"\x14\n" +
 	"\x12EnableOSPFResponse\"g\n" +
 	"\x12DisableOSPFRequest\x12\x14\n" +
 	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
@@ -2489,14 +2506,15 @@ const file_api_v1_novaroute_proto_rawDesc = "" +
 	"\tmin_rx_ms\x18\x04 \x01(\rR\aminRxMs\x12\x1a\n" +
 	"\tmin_tx_ms\x18\x05 \x01(\rR\aminTxMs\x12+\n" +
 	"\x11detect_multiplier\x18\x06 \x01(\rR\x10detectMultiplier\x12\x16\n" +
-	"\x06uptime\x18\a \x01(\tR\x06uptime\"\xbc\x01\n" +
+	"\x06uptime\x18\a \x01(\tR\x06uptime\"\xd0\x01\n" +
 	"\x13OSPFInterfaceStatus\x12%\n" +
 	"\x0einterface_name\x18\x01 \x01(\tR\rinterfaceName\x12\x17\n" +
 	"\aarea_id\x18\x02 \x01(\tR\x06areaId\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12\x14\n" +
 	"\x05owner\x18\x04 \x01(\tR\x05owner\x12%\n" +
 	"\x0eneighbor_count\x18\x05 \x01(\rR\rneighborCount\x12\x12\n" +
-	"\x04cost\x18\x06 \x01(\rR\x04cost\"[\n" +
+	"\x04cost\x18\x06 \x01(\rR\x04cost\x12\x12\n" +
+	"\x04ipv6\x18\a \x01(\bR\x04ipv6\"[\n" +
 	"\tFRRStatus\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1c\n" +
 	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x16\n" +
