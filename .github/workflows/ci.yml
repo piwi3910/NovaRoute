@@ -112,10 +112,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build documentation
-        run: |
-          docker run --rm -v "${{ github.workspace }}/docs:/srv/jekyll" \
-            jekyll/jekyll:4 sh -c "bundle install && jekyll build"
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
 
   phase2-docs-freshness:
     name: "Phase 2: Docs Freshness"
