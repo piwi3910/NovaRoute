@@ -1,21 +1,6 @@
----
-layout: default
-title: CLI Reference
-nav_order: 6
----
-
 # novaroutectl CLI Reference
-{: .no_toc }
 
 `novaroutectl` is the command-line tool for inspecting and managing the NovaRoute agent. It communicates with the agent over the gRPC Unix domain socket.
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-  {: .text-delta }
-- TOC
-{:toc}
-</details>
-
 ---
 
 ## Global Flags

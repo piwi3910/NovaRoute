@@ -1,9 +1,3 @@
----
-layout: default
-title: Getting Started
-nav_order: 2
----
-
 # Getting Started
 
 This guide walks you through installing NovaRoute, creating a configuration, starting the agent, and setting up your first BGP peer.
@@ -34,7 +28,7 @@ For Kubernetes deployments, you also need:
 Clone the repository and build both binaries:
 
 ```bash
-git clone https://github.com/piwi3910/NovaRoute.git
+git clone https://github.com/azrtydxb/NovaRoute.git
 cd NovaRoute
 make build
 ```
@@ -70,7 +64,7 @@ make test
 Pull the pre-built multi-architecture image:
 
 ```bash
-docker pull ghcr.io/piwi3910/novaroute/novaroute-agent:latest
+docker pull ghcr.io/azrtydxb/novaroute/novaroute-agent:latest
 ```
 
 This image supports both `linux/amd64` and `linux/arm64`.
@@ -84,7 +78,7 @@ docker run -d \
   -v /run/frr:/run/frr \
   -v /run/novaroute:/run/novaroute \
   -v /etc/novaroute:/etc/novaroute:ro \
-  ghcr.io/piwi3910/novaroute/novaroute-agent:latest \
+  ghcr.io/azrtydxb/novaroute/novaroute-agent:latest \
   --config=/etc/novaroute/config.json
 ```
 
@@ -147,7 +141,7 @@ Create `/etc/novaroute/config.json` with your BGP settings and at least one owne
 }
 ```
 
-See the [Configuration]({% link configuration.md %}) page for the full reference.
+See the [Configuration](configuration.md) page for the full reference.
 
 ### Step 2: Start the Agent
 
@@ -278,6 +272,6 @@ This will display events like peer state transitions, prefix advertisements, and
 
 ## Next Steps
 
-- Read the [Architecture]({% link architecture.md %}) page to understand the reconciler, policy engine, and FRR integration
-- See the [Configuration]({% link configuration.md %}) page for the full config reference, environment variables, and prefix policy types
+- Read the [Architecture](architecture.md) page to understand the reconciler, policy engine, and FRR integration
+- See the [Configuration](configuration.md) page for the full config reference, environment variables, and prefix policy types
 - Set up multiple owners (e.g., `novaedge` with `host_only` policy) to see the policy engine in action

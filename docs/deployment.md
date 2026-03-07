@@ -1,21 +1,6 @@
----
-layout: default
-title: Deployment
-nav_order: 7
----
-
 # Kubernetes Deployment Guide
-{: .no_toc }
 
 This guide covers deploying NovaRoute as a DaemonSet on a Kubernetes cluster. NovaRoute runs on every node to provide local routing control via FRR.
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-  {: .text-delta }
-- TOC
-{:toc}
-</details>
-
 ---
 
 ## Architecture Overview
@@ -254,7 +239,7 @@ spec:
           effect: NoExecute
       containers:
         - name: novaroute-agent
-          image: ghcr.io/piwi3910/novaroute/novaroute-agent:latest
+          image: ghcr.io/azrtydxb/novaroute/novaroute-agent:latest
           imagePullPolicy: Always
           args:
             - --config=/etc/novaroute/config.json
@@ -299,7 +284,7 @@ spec:
               readOnly: true
 
         - name: frr
-          image: ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1
+          image: ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1
           imagePullPolicy: Always
           resources:
             requests:
@@ -342,7 +327,7 @@ spec:
 
 | Property | Value |
 |:---------|:------|
-| Image | `ghcr.io/piwi3910/novaroute/novaroute-agent:latest` |
+| Image | `ghcr.io/azrtydxb/novaroute/novaroute-agent:latest` |
 | Entrypoint arg | `--config=/etc/novaroute/config.json` |
 | Metrics port | `9102` (HTTP) |
 | Health endpoint | `/healthz` on port `9102` |
@@ -356,7 +341,7 @@ The agent needs `NET_ADMIN` for route table manipulation. It connects to FRR's V
 
 | Property | Value |
 |:---------|:------|
-| Image | `ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1` |
+| Image | `ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1` |
 | CPU request/limit | 100m / 500m |
 | Memory request/limit | 128Mi / 256Mi |
 | Capabilities | `NET_ADMIN`, `NET_RAW`, `SYS_ADMIN` |
@@ -471,8 +456,8 @@ NovaRoute publishes multi-architecture container images (amd64 and arm64) to the
 
 | Image | Description |
 |:------|:------------|
-| `ghcr.io/piwi3910/novaroute/novaroute-agent:latest` | The NovaRoute agent control plane. |
-| `ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1` | FRR routing engine with bgpd, ospfd, bfdd, zebra, and mgmtd. |
+| `ghcr.io/azrtydxb/novaroute/novaroute-agent:latest` | The NovaRoute agent control plane. |
+| `ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1` | FRR routing engine with bgpd, ospfd, bfdd, zebra, and mgmtd. |
 
 Images are built and published automatically on release tags. Use a pinned version tag (e.g., `novaroute-agent:v0.5.0`) in production rather than `latest`.
 

@@ -1,11 +1,5 @@
----
-layout: default
-title: Home
-nav_order: 1
----
-
 <p align="center">
-  <img src="{{ '/assets/novaroute-logo-dark.svg' | relative_url }}" alt="NovaRoute" width="480">
+  <img src="assets/novaroute-logo-dark.svg" alt="NovaRoute" width="480">
 </p>
 
 **Node-local, policy-safe routing control plane for Kubernetes.**
@@ -37,9 +31,9 @@ Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer 
 
 | Page | Description |
 |------|-------------|
-| [Getting Started]({% link getting-started.md %}) | Prerequisites, installation, and your first BGP peer |
-| [Architecture]({% link architecture.md %}) | System design, component roles, data flow, and reconciliation details |
-| [Configuration]({% link configuration.md %}) | Full config reference, environment variables, and policy types |
+| [Getting Started](getting-started.md) | Prerequisites, installation, and your first BGP peer |
+| [Architecture](architecture.md) | System design, component roles, data flow, and reconciliation details |
+| [Configuration](configuration.md) | Full config reference, environment variables, and policy types |
 
 ---
 
@@ -49,9 +43,9 @@ Clients such as [NovaEdge](https://github.com/piwi3910/novaedge) (load balancer 
 |---|---|
 | **Language** | Go 1.26 |
 | **License** | Apache-2.0 |
-| **Source** | [github.com/piwi3910/NovaRoute](https://github.com/piwi3910/NovaRoute) |
-| **Docker Image** | `ghcr.io/piwi3910/novaroute/novaroute-agent` (linux/amd64, linux/arm64) |
-| **FRR Image** | `ghcr.io/piwi3910/novaroute/novaroute-frr:10.5.1` |
+| **Source** | [github.com/azrtydxb/NovaRoute](https://github.com/azrtydxb/NovaRoute) |
+| **Docker Image** | `ghcr.io/azrtydxb/novaroute/novaroute-agent` (linux/amd64, linux/arm64) |
+| **FRR Image** | `ghcr.io/azrtydxb/novaroute/novaroute-frr:10.5.1` |
 | **Status** | Core routing features complete -- BGP, BFD, OSPF, reconciliation, policy engine, event streaming, Kubernetes operator |
 
 ---

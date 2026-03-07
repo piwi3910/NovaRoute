@@ -1,9 +1,3 @@
----
-layout: default
-title: Contributing
-nav_order: 10
----
-
 # Contributing
 
 This guide covers how to set up a development environment, build and test NovaRoute, and submit contributions.
@@ -27,7 +21,7 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ## Clone and Build
 
 ```bash
-git clone https://github.com/piwi3910/NovaRoute.git
+git clone https://github.com/azrtydxb/NovaRoute.git
 cd NovaRoute
 make build
 ```

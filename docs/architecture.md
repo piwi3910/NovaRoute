@@ -1,9 +1,3 @@
----
-layout: default
-title: Architecture
-nav_order: 3
----
-
 # Architecture
 
 NovaRoute is designed as a single point of control for all routing protocols on a Kubernetes node. This page explains the system architecture, component roles, data flow, package structure, and key design decisions.

@@ -112,11 +112,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          source: ./docs
-          destination: ./_site
+          python-version: '3.x'
+
+      - name: Install MkDocs
+        run: pip install mkdocs-material
+
+      - name: Build docs
+        run: mkdocs build --strict
 
   phase2-docs-freshness:
     name: "Phase 2: Docs Freshness"

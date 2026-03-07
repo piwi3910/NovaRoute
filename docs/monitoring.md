@@ -1,9 +1,3 @@
----
-layout: default
-title: Monitoring & Observability
-nav_order: 8
----
-
 # Monitoring & Observability
 
 NovaRoute exposes Prometheus metrics, health endpoints, and a gRPC event stream to give you full visibility into the routing control plane.

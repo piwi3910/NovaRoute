@@ -1,21 +1,6 @@
----
-layout: default
-title: API Reference
-nav_order: 5
----
-
 # gRPC API Reference
-{: .no_toc }
 
 NovaRoute exposes a single gRPC service over a Unix domain socket at `/run/novaroute/novaroute.sock`. All clients -- NovaEdge, NovaNet, admin tools -- use this API to declare routing intents.
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-  {: .text-delta }
-- TOC
-{:toc}
-</details>
-
 ---
 
 ## Service: RouteControl

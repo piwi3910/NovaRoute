@@ -1,9 +1,3 @@
----
-layout: default
-title: Configuration
-nav_order: 4
----
-
 # Configuration
 
 NovaRoute agent reads a JSON configuration file at startup. The default path is `/etc/novaroute/config.json`, overridden via the `--config` flag.

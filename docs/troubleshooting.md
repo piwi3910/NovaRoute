@@ -1,9 +1,3 @@
----
-layout: default
-title: Troubleshooting
-nav_order: 9
----
-
 # Troubleshooting
 
 This guide covers common issues, debugging techniques, and diagnostic commands for NovaRoute.
