@@ -114,8 +114,8 @@ jobs:
 
       - name: Build documentation
         run: |
-          sudo apt-get update && sudo apt-get install -y ruby-full build-essential
-          cd docs && sudo gem install bundler && sudo bundle install && bundle exec jekyll build
+          docker run --rm -v "${{ github.workspace }}/docs:/srv/jekyll" \
+            jekyll/jekyll:4 sh -c "bundle install && jekyll build"
 
   phase2-docs-freshness:
     name: "Phase 2: Docs Freshness"
