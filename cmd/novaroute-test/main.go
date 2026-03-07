@@ -77,8 +77,8 @@ func run() int {
 func testSessionManagement(client v1.RouteControlClient) {
 	section("1. SESSION MANAGEMENT")
 
-	test("Register novaedge owner", func() error {
-		resp, err := client.Register(ctx(), &v1.RegisterRequest{
+	test("Register novaedge owner", func(ctx context.Context) error {
+		resp, err := client.Register(ctx, &v1.RegisterRequest{
 			Owner: "novaedge",
 			Token: "novaedge-test-token-2024",
 		})
@@ -92,8 +92,8 @@ func testSessionManagement(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("Register admin owner", func() error {
-		resp, err := client.Register(ctx(), &v1.RegisterRequest{
+	test("Register admin owner", func(ctx context.Context) error {
+		resp, err := client.Register(ctx, &v1.RegisterRequest{
 			Owner: "admin",
 			Token: "admin-test-token-2024",
 		})
@@ -106,8 +106,8 @@ func testSessionManagement(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("Reject bad token", func() error {
-		_, err := client.Register(ctx(), &v1.RegisterRequest{
+	test("Reject bad token", func(ctx context.Context) error {
+		_, err := client.Register(ctx, &v1.RegisterRequest{
 			Owner: "novaedge",
 			Token: "wrong-token",
 		})
@@ -122,8 +122,8 @@ func testSessionManagement(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("Reject unknown owner", func() error {
-		_, err := client.Register(ctx(), &v1.RegisterRequest{
+	test("Reject unknown owner", func(ctx context.Context) error {
+		_, err := client.Register(ctx, &v1.RegisterRequest{
 			Owner: "unknown",
 			Token: "anything",
 		})
@@ -141,8 +141,8 @@ func testSessionManagement(client v1.RouteControlClient) {
 func testBGPPeerManagement(client v1.RouteControlClient) {
 	section("2. BGP PEER MANAGEMENT")
 
-	test("ApplyPeer as admin (192.168.100.1 AS 65001)", func() error {
-		_, err := client.ApplyPeer(ctx(), &v1.ApplyPeerRequest{
+	test("ApplyPeer as admin (192.168.100.1 AS 65001)", func(ctx context.Context) error {
+		_, err := client.ApplyPeer(ctx, &v1.ApplyPeerRequest{
 			Owner: "admin",
 			Token: "admin-test-token-2024",
 			Peer: &v1.BGPPeer{
@@ -158,8 +158,8 @@ func testBGPPeerManagement(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("ApplyPeer as novaedge (10.0.0.1 AS 65002)", func() error {
-		_, err := client.ApplyPeer(ctx(), &v1.ApplyPeerRequest{
+	test("ApplyPeer as novaedge (10.0.0.1 AS 65002)", func(ctx context.Context) error {
+		_, err := client.ApplyPeer(ctx, &v1.ApplyPeerRequest{
 			Owner: "novaedge",
 			Token: "novaedge-test-token-2024",
 			Peer: &v1.BGPPeer{
@@ -178,8 +178,8 @@ func testBGPPeerManagement(client v1.RouteControlClient) {
 func testPrefixAdvertisement(client v1.RouteControlClient) {
 	section("3. PREFIX ADVERTISEMENT")
 
-	test("AdvertisePrefix /32 as novaedge (should succeed)", func() error {
-		_, err := client.AdvertisePrefix(ctx(), &v1.AdvertisePrefixRequest{
+	test("AdvertisePrefix /32 as novaedge (should succeed)", func(ctx context.Context) error {
+		_, err := client.AdvertisePrefix(ctx, &v1.AdvertisePrefixRequest{
 			Owner:    "novaedge",
 			Token:    "novaedge-test-token-2024",
 			Prefix:   "10.0.0.100/32",
@@ -192,8 +192,8 @@ func testPrefixAdvertisement(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("AdvertisePrefix /24 as novaedge (should be rejected)", func() error {
-		_, err := client.AdvertisePrefix(ctx(), &v1.AdvertisePrefixRequest{
+	test("AdvertisePrefix /24 as novaedge (should be rejected)", func(ctx context.Context) error {
+		_, err := client.AdvertisePrefix(ctx, &v1.AdvertisePrefixRequest{
 			Owner:    "novaedge",
 			Token:    "novaedge-test-token-2024",
 			Prefix:   "10.0.0.0/24",
@@ -207,8 +207,8 @@ func testPrefixAdvertisement(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("AdvertisePrefix /24 as admin (should succeed)", func() error {
-		_, err := client.AdvertisePrefix(ctx(), &v1.AdvertisePrefixRequest{
+	test("AdvertisePrefix /24 as admin (should succeed)", func(ctx context.Context) error {
+		_, err := client.AdvertisePrefix(ctx, &v1.AdvertisePrefixRequest{
 			Owner:    "admin",
 			Token:    "admin-test-token-2024",
 			Prefix:   "172.16.0.0/24",
@@ -221,8 +221,8 @@ func testPrefixAdvertisement(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("AdvertisePrefix outside allowed CIDR as novaedge (should be rejected)", func() error {
-		_, err := client.AdvertisePrefix(ctx(), &v1.AdvertisePrefixRequest{
+	test("AdvertisePrefix outside allowed CIDR as novaedge (should be rejected)", func(ctx context.Context) error {
+		_, err := client.AdvertisePrefix(ctx, &v1.AdvertisePrefixRequest{
 			Owner:    "novaedge",
 			Token:    "novaedge-test-token-2024",
 			Prefix:   "8.8.8.8/32",
@@ -240,8 +240,8 @@ func testPrefixAdvertisement(client v1.RouteControlClient) {
 func testStatusVerification(client v1.RouteControlClient) {
 	section("4. STATUS VERIFICATION")
 
-	test("GetStatus shows peers and prefixes", func() error {
-		resp, err := client.GetStatus(ctx(), &v1.GetStatusRequest{})
+	test("GetStatus shows peers and prefixes", func(ctx context.Context) error {
+		resp, err := client.GetStatus(ctx, &v1.GetStatusRequest{})
 		if err != nil {
 			return err
 		}
@@ -262,8 +262,8 @@ func testStatusVerification(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("GetStatus filtered by owner=novaedge", func() error {
-		resp, err := client.GetStatus(ctx(), &v1.GetStatusRequest{
+	test("GetStatus filtered by owner=novaedge", func(ctx context.Context) error {
+		resp, err := client.GetStatus(ctx, &v1.GetStatusRequest{
 			OwnerFilter: "novaedge",
 		})
 		if err != nil {
@@ -283,16 +283,16 @@ func testStatusVerification(client v1.RouteControlClient) {
 func testNovanetOwnerPolicy(client v1.RouteControlClient) {
 	section("5. NOVANET OWNER POLICY")
 
-	test("Register novanet", func() error {
-		_, err := client.Register(ctx(), &v1.RegisterRequest{
+	test("Register novanet", func(ctx context.Context) error {
+		_, err := client.Register(ctx, &v1.RegisterRequest{
 			Owner: "novanet",
 			Token: "novanet-test-token-2024",
 		})
 		return err
 	})
 
-	test("AdvertisePrefix /16 subnet as novanet (should succeed)", func() error {
-		_, err := client.AdvertisePrefix(ctx(), &v1.AdvertisePrefixRequest{
+	test("AdvertisePrefix /16 subnet as novanet (should succeed)", func(ctx context.Context) error {
+		_, err := client.AdvertisePrefix(ctx, &v1.AdvertisePrefixRequest{
 			Owner:    "novanet",
 			Token:    "novanet-test-token-2024",
 			Prefix:   "10.244.0.0/16",
@@ -301,8 +301,8 @@ func testNovanetOwnerPolicy(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("AdvertisePrefix /32 as novanet (should be rejected)", func() error {
-		_, err := client.AdvertisePrefix(ctx(), &v1.AdvertisePrefixRequest{
+	test("AdvertisePrefix /32 as novanet (should be rejected)", func(ctx context.Context) error {
+		_, err := client.AdvertisePrefix(ctx, &v1.AdvertisePrefixRequest{
 			Owner:    "novanet",
 			Token:    "novanet-test-token-2024",
 			Prefix:   "10.244.1.1/32",
@@ -320,8 +320,8 @@ func testNovanetOwnerPolicy(client v1.RouteControlClient) {
 func testCleanupOperations(client v1.RouteControlClient) {
 	section("6. CLEANUP OPERATIONS")
 
-	test("WithdrawPrefix 10.0.0.100/32 as novaedge", func() error {
-		_, err := client.WithdrawPrefix(ctx(), &v1.WithdrawPrefixRequest{
+	test("WithdrawPrefix 10.0.0.100/32 as novaedge", func(ctx context.Context) error {
+		_, err := client.WithdrawPrefix(ctx, &v1.WithdrawPrefixRequest{
 			Owner:    "novaedge",
 			Token:    "novaedge-test-token-2024",
 			Prefix:   "10.0.0.100/32",
@@ -330,8 +330,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("RemovePeer 10.0.0.1 as novaedge", func() error {
-		_, err := client.RemovePeer(ctx(), &v1.RemovePeerRequest{
+	test("RemovePeer 10.0.0.1 as novaedge", func(ctx context.Context) error {
+		_, err := client.RemovePeer(ctx, &v1.RemovePeerRequest{
 			Owner:           "novaedge",
 			Token:           "novaedge-test-token-2024",
 			NeighborAddress: "10.0.0.1",
@@ -339,8 +339,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("Verify novaedge has no peers/prefixes after cleanup", func() error {
-		resp, err := client.GetStatus(ctx(), &v1.GetStatusRequest{
+	test("Verify novaedge has no peers/prefixes after cleanup", func(ctx context.Context) error {
+		resp, err := client.GetStatus(ctx, &v1.GetStatusRequest{
 			OwnerFilter: "novaedge",
 		})
 		if err != nil {
@@ -356,8 +356,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("Admin still has 1 peer and 1 prefix", func() error {
-		resp, err := client.GetStatus(ctx(), &v1.GetStatusRequest{
+	test("Admin still has 1 peer and 1 prefix", func(ctx context.Context) error {
+		resp, err := client.GetStatus(ctx, &v1.GetStatusRequest{
 			OwnerFilter: "admin",
 		})
 		if err != nil {
@@ -373,8 +373,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("Deregister admin with withdraw_all=true", func() error {
-		_, err := client.Deregister(ctx(), &v1.DeregisterRequest{
+	test("Deregister admin with withdraw_all=true", func(ctx context.Context) error {
+		_, err := client.Deregister(ctx, &v1.DeregisterRequest{
 			Owner:       "admin",
 			Token:       "admin-test-token-2024",
 			WithdrawAll: true,
@@ -382,8 +382,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 		return err
 	})
 
-	test("Verify admin is fully cleaned after deregister", func() error {
-		resp, err := client.GetStatus(ctx(), &v1.GetStatusRequest{
+	test("Verify admin is fully cleaned after deregister", func(ctx context.Context) error {
+		resp, err := client.GetStatus(ctx, &v1.GetStatusRequest{
 			OwnerFilter: "admin",
 		})
 		if err != nil {
@@ -399,8 +399,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 		return nil
 	})
 
-	test("Deregister novanet with withdraw_all=true", func() error {
-		_, err := client.Deregister(ctx(), &v1.DeregisterRequest{
+	test("Deregister novanet with withdraw_all=true", func(ctx context.Context) error {
+		_, err := client.Deregister(ctx, &v1.DeregisterRequest{
 			Owner:       "novanet",
 			Token:       "novanet-test-token-2024",
 			WithdrawAll: true,
@@ -412,8 +412,8 @@ func testCleanupOperations(client v1.RouteControlClient) {
 func testFinalCleanState(client v1.RouteControlClient) {
 	section("7. FINAL CLEAN STATE VERIFICATION")
 
-	test("All resources cleaned up", func() error {
-		resp, err := client.GetStatus(ctx(), &v1.GetStatusRequest{})
+	test("All resources cleaned up", func(ctx context.Context) error {
+		resp, err := client.GetStatus(ctx, &v1.GetStatusRequest{})
 		if err != nil {
 			return err
 		}
@@ -427,19 +427,15 @@ func testFinalCleanState(client v1.RouteControlClient) {
 	})
 }
 
-func ctx() context.Context {
-	c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_ = cancel // leak is acceptable in short-lived test binary
-	return c
-}
-
 func section(name string) {
 	fmt.Printf("\n--- %s ---\n\n", name)
 }
 
-func test(name string, fn func() error) {
+func test(name string, fn func(ctx context.Context) error) {
 	fmt.Printf("  [TEST] %s ... ", name)
-	if err := fn(); err != nil {
+	c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := fn(c); err != nil {
 		fmt.Printf("FAIL\n    error: %v\n", err)
 		failed++
 	} else {

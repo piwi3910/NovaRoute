@@ -27,7 +27,11 @@ var (
 	ErrFRRRetryIntervalPositive  = errors.New("frr.retry_interval must be positive")
 
 	// BGP configuration errors.
-	ErrBGPRouterIDInvalid = errors.New("bgp.router_id is not a valid IP address")
+	ErrBGPRouterIDInvalid       = errors.New("bgp.router_id is not a valid IP address")
+	ErrBGPPeerNeighborEmpty     = errors.New("neighbor_address must not be empty")
+	ErrBGPPeerNeighborInvalid   = errors.New("neighbor_address is not a valid IP address")
+	ErrBGPPeerRemoteASZero      = errors.New("remote_as must be greater than 0")
+	ErrBGPPeerSourceAddrInvalid = errors.New("source_address is not a valid IP address")
 
 	// Owner configuration errors.
 	ErrOwnerTokenEmpty        = errors.New("token must not be empty")
@@ -234,27 +238,56 @@ func Validate(cfg *Config) error {
 
 	// Validate configured BGP peers.
 	for i, peer := range cfg.BGP.Peers {
-		if peer.NeighborAddress == "" {
-			return fmt.Errorf("bgp.peers[%d]: neighbor_address must not be empty", i)
-		}
-		if ip := net.ParseIP(peer.NeighborAddress); ip == nil {
-			return fmt.Errorf("bgp.peers[%d]: neighbor_address %q is not a valid IP address", i, peer.NeighborAddress)
-		}
-		if peer.RemoteAS == 0 {
-			return fmt.Errorf("bgp.peers[%d]: remote_as must be greater than 0", i)
-		}
-		if peer.SourceAddress != "" {
-			if ip := net.ParseIP(peer.SourceAddress); ip == nil {
-				return fmt.Errorf("bgp.peers[%d]: source_address %q is not a valid IP address", i, peer.SourceAddress)
-			}
+		if err := validateBGPPeer(i, peer); err != nil {
+			return err
 		}
 	}
 
-	if len(cfg.Owners) == 0 {
+	if err := validateOwners(cfg.Owners); err != nil {
+		return err
+	}
+
+	switch strings.ToLower(cfg.LogLevel) {
+	case "debug", "info", "warn", "error":
+		// valid
+	default:
+		return fmt.Errorf("log_level %q: %w", cfg.LogLevel, ErrLogLevelInvalid)
+	}
+
+	if cfg.DisconnectGracePeriod < 0 {
+		return fmt.Errorf("disconnect_grace_period must not be negative, got %d: %w", cfg.DisconnectGracePeriod, ErrDisconnectGracePeriodNeg)
+	}
+
+	return nil
+}
+
+// validateBGPPeer checks that a single BGP peer configuration entry is valid.
+func validateBGPPeer(idx int, peer PeerConfig) error {
+	if peer.NeighborAddress == "" {
+		return fmt.Errorf("bgp.peers[%d]: %w", idx, ErrBGPPeerNeighborEmpty)
+	}
+	if ip := net.ParseIP(peer.NeighborAddress); ip == nil {
+		return fmt.Errorf("bgp.peers[%d]: neighbor_address %q: %w", idx, peer.NeighborAddress, ErrBGPPeerNeighborInvalid)
+	}
+	if peer.RemoteAS == 0 {
+		return fmt.Errorf("bgp.peers[%d]: %w", idx, ErrBGPPeerRemoteASZero)
+	}
+	if peer.SourceAddress != "" {
+		if ip := net.ParseIP(peer.SourceAddress); ip == nil {
+			return fmt.Errorf("bgp.peers[%d]: source_address %q: %w", idx, peer.SourceAddress, ErrBGPPeerSourceAddrInvalid)
+		}
+	}
+	return nil
+}
+
+// validateOwners checks that at least one owner is configured and that each
+// owner entry has valid fields.
+func validateOwners(owners map[string]OwnerConfig) error {
+	if len(owners) == 0 {
 		return ErrAtLeastOneOwnerRequired
 	}
 
-	for name, owner := range cfg.Owners {
+	for name, owner := range owners {
 		if owner.Token == "" {
 			return fmt.Errorf("owner %q: %w", name, ErrOwnerTokenEmpty)
 		}
@@ -274,18 +307,6 @@ func Validate(cfg *Config) error {
 			}
 		}
 	}
-
-	switch strings.ToLower(cfg.LogLevel) {
-	case "debug", "info", "warn", "error":
-		// valid
-	default:
-		return fmt.Errorf("log_level %q: %w", cfg.LogLevel, ErrLogLevelInvalid)
-	}
-
-	if cfg.DisconnectGracePeriod < 0 {
-		return fmt.Errorf("disconnect_grace_period must not be negative, got %d: %w", cfg.DisconnectGracePeriod, ErrDisconnectGracePeriodNeg)
-	}
-
 	return nil
 }
 

@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+const testRouterID = "10.0.0.1"
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
@@ -71,7 +73,7 @@ func validConfig() *Config {
 		},
 		BGP: BGPConfig{
 			LocalAS:  65001,
-			RouterID: "10.0.0.1",
+			RouterID: testRouterID,
 		},
 		Owners: map[string]OwnerConfig{
 			"novaedge": {
@@ -100,8 +102,8 @@ func TestLoadFromFile(t *testing.T) {
 	if loaded.BGP.LocalAS != 65001 {
 		t.Errorf("BGP.LocalAS = %d, want %d", loaded.BGP.LocalAS, 65001)
 	}
-	if loaded.BGP.RouterID != "10.0.0.1" {
-		t.Errorf("BGP.RouterID = %q, want %q", loaded.BGP.RouterID, "10.0.0.1")
+	if loaded.BGP.RouterID != testRouterID {
+		t.Errorf("BGP.RouterID = %q, want %q", loaded.BGP.RouterID, testRouterID)
 	}
 	if loaded.ListenSocket != "/run/novaroute/novaroute.sock" {
 		t.Errorf("ListenSocket = %q, want %q", loaded.ListenSocket, "/run/novaroute/novaroute.sock")
@@ -514,12 +516,12 @@ func TestExpandEnvVars_AutoRouterIDDoesNotOverrideExplicit(t *testing.T) {
 
 	cfg := validConfig()
 	cfg.BGP.AutoRouterID = true
-	cfg.BGP.RouterID = "10.0.0.1"
+	cfg.BGP.RouterID = testRouterID
 
 	ExpandEnvVars(cfg)
 
-	if cfg.BGP.RouterID != "10.0.0.1" {
-		t.Errorf("RouterID = %q, want %q (explicit should not be overridden)", cfg.BGP.RouterID, "10.0.0.1")
+	if cfg.BGP.RouterID != testRouterID {
+		t.Errorf("RouterID = %q, want %q (explicit should not be overridden)", cfg.BGP.RouterID, testRouterID)
 	}
 }
 
@@ -600,7 +602,7 @@ func TestValidate_PeerInvalidSourceAddress(t *testing.T) {
 func TestLoadFromFile_WithPeers(t *testing.T) {
 	cfg := validConfig()
 	cfg.BGP.Peers = []PeerConfig{
-		{NeighborAddress: "10.0.0.1", RemoteAS: 65001, BFDEnabled: true, BFDMinRxMs: 200, BFDMinTxMs: 200, BFDDetectMultiplier: 5},
+		{NeighborAddress: testRouterID, RemoteAS: 65001, BFDEnabled: true, BFDMinRxMs: 200, BFDMinTxMs: 200, BFDDetectMultiplier: 5},
 	}
 
 	path := writeTestConfig(t, cfg)
@@ -614,8 +616,8 @@ func TestLoadFromFile_WithPeers(t *testing.T) {
 	}
 
 	peer := loaded.BGP.Peers[0]
-	if peer.NeighborAddress != "10.0.0.1" {
-		t.Errorf("peer.NeighborAddress = %q, want %q", peer.NeighborAddress, "10.0.0.1")
+	if peer.NeighborAddress != testRouterID {
+		t.Errorf("peer.NeighborAddress = %q, want %q", peer.NeighborAddress, testRouterID)
 	}
 	if peer.RemoteAS != 65001 {
 		t.Errorf("peer.RemoteAS = %d, want %d", peer.RemoteAS, 65001)
