@@ -862,7 +862,13 @@ func (r *Reconciler) WithdrawAll(ctx context.Context) error {
 
 	// 3. Disable all applied OSPF interfaces.
 	for key, o := range r.appliedOSPF {
-		if err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive); err != nil {
+		var err error
+		if o.IPv6 {
+			err = r.frrClient.DisableOSPFv3Interface(ctx, o.InterfaceName, o.AreaID, o.Passive)
+		} else {
+			err = r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive)
+		}
+		if err != nil {
 			r.logger.Error("WithdrawAll: failed to disable OSPF interface",
 				zap.String("interface", o.InterfaceName),
 				zap.String("area", o.AreaID),
@@ -1297,10 +1303,18 @@ func (r *Reconciler) removeBFDFromFRR(ctx context.Context, peerAddr string, ifac
 	return nil
 }
 
-// applyOSPFIntent translates an OSPFIntent into an FRR EnableOSPFInterface call.
+// applyOSPFIntent translates an OSPFIntent into an FRR EnableOSPFInterface or
+// EnableOSPFv3Interface call depending on the IPv6 flag.
 func (r *Reconciler) applyOSPFIntent(ctx context.Context, o *intent.OSPFIntent) error {
 	start := time.Now()
-	err := r.frrClient.EnableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive, o.Cost, o.HelloInterval, o.DeadInterval)
+
+	var err error
+	if o.IPv6 {
+		err = r.frrClient.EnableOSPFv3Interface(ctx, o.InterfaceName, o.AreaID, o.Passive, o.Cost)
+	} else {
+		err = r.frrClient.EnableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive, o.Cost, o.HelloInterval, o.DeadInterval)
+	}
+
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
@@ -1313,14 +1327,23 @@ func (r *Reconciler) applyOSPFIntent(ctx context.Context, o *intent.OSPFIntent) 
 		zap.String("interface", o.InterfaceName),
 		zap.String("area", o.AreaID),
 		zap.String("owner", o.Owner),
+		zap.Bool("ipv6", o.IPv6),
 	)
 	return nil
 }
 
-// removeOSPFFromFRR disables OSPF on an interface in FRR.
+// removeOSPFFromFRR disables OSPF on an interface in FRR using either
+// DisableOSPFInterface or DisableOSPFv3Interface depending on the IPv6 flag.
 func (r *Reconciler) removeOSPFFromFRR(ctx context.Context, o *intent.OSPFIntent) error {
 	start := time.Now()
-	err := r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive)
+
+	var err error
+	if o.IPv6 {
+		err = r.frrClient.DisableOSPFv3Interface(ctx, o.InterfaceName, o.AreaID, o.Passive)
+	} else {
+		err = r.frrClient.DisableOSPFInterface(ctx, o.InterfaceName, o.AreaID, o.Passive)
+	}
+
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
@@ -1333,6 +1356,7 @@ func (r *Reconciler) removeOSPFFromFRR(ctx context.Context, o *intent.OSPFIntent
 		zap.String("interface", o.InterfaceName),
 		zap.String("area", o.AreaID),
 		zap.String("owner", o.Owner),
+		zap.Bool("ipv6", o.IPv6),
 	)
 	return nil
 }
@@ -1519,5 +1543,6 @@ func ospfEqual(a, b *intent.OSPFIntent) bool {
 		a.Passive == b.Passive &&
 		a.Cost == b.Cost &&
 		a.HelloInterval == b.HelloInterval &&
-		a.DeadInterval == b.DeadInterval
+		a.DeadInterval == b.DeadInterval &&
+		a.IPv6 == b.IPv6
 }
