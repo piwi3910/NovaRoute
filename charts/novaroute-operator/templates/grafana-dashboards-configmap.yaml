@@ -1,0 +1,28 @@
+{{- if .Values.grafana.dashboards.enabled }}
+{{- $fullname := include "novaroute-operator.fullname" . -}}
+{{- $labels := include "novaroute-operator.labels" . -}}
+{{- $namespace := .Values.grafana.dashboards.namespace | default .Release.Namespace -}}
+{{- $dashboardLabels := .Values.grafana.dashboards.labels -}}
+{{- $dashboardAnnotations := .Values.grafana.dashboards.annotations -}}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- $dashboardName := trimSuffix ".json" (base $path) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard-{{ $dashboardName }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+    {{- range $key, $value := $dashboardLabels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- with $dashboardAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{ $dashboardName }}.json: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}

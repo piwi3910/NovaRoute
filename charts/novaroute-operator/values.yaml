@@ -142,6 +142,19 @@ rbac:
   # -- Create RBAC resources
   create: true
 
+# -- Grafana dashboard configuration
+grafana:
+  dashboards:
+    # -- Enable Grafana dashboard ConfigMaps
+    enabled: false
+    # -- Labels to apply to dashboard ConfigMaps (for Grafana sidecar auto-discovery)
+    labels:
+      grafana_dashboard: "1"
+    # -- Annotations to apply to dashboard ConfigMaps
+    annotations: {}
+    # -- Override namespace for dashboard ConfigMaps (defaults to release namespace)
+    namespace: ""
+
 # -- PostSync test hooks for ArgoCD CT (Continuous Testing)
 tests:
   image: bitnami/kubectl:latest
