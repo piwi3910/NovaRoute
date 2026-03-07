@@ -24,7 +24,7 @@ permissions:
 jobs:
   ct-functional:
     name: "CT: Functional Tests"
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.event.inputs.test_suite == 'all' ||
@@ -63,7 +63,7 @@ jobs:
 
   ct-integration:
     name: "CT: Integration Tests"
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.event.inputs.test_suite == 'all' ||
@@ -102,7 +102,7 @@ jobs:
 
   ct-performance:
     name: "CT: Performance Tests"
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.event.inputs.test_suite == 'all' ||
@@ -137,7 +137,7 @@ jobs:
 
   ct-summary:
     name: "CT: Summary"
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     needs: [ct-functional, ct-integration, ct-performance]
     if: always()
     steps:

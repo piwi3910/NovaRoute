@@ -11,12 +11,12 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/piwi3910/novaroute
+  IMAGE_PREFIX: ghcr.io/azrtydxb/novaroute
 
 jobs:
   build-binaries:
     name: Build Binaries
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     strategy:
       matrix:
         arch: [amd64, arm64]
@@ -62,7 +62,7 @@ jobs:
 
   release:
     name: Create Release
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     needs: build-binaries
     steps:
       - name: Checkout code
@@ -101,7 +101,7 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-latest
+            runner: qnap-nas
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
@@ -190,7 +190,7 @@ jobs:
   # Merge per-platform images into multi-arch manifests.
   docker-manifest:
     name: Docker Manifest
-    runs-on: ubuntu-latest
+    runs-on: qnap-nas
     needs: docker-build
     steps:
       - name: Set up Docker Buildx
