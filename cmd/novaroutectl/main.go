@@ -55,6 +55,8 @@ BFD sessions, and OSPF interfaces.`,
 		newDisableBFDCmd(),
 		newEnableOSPFCmd(),
 		newDisableOSPFCmd(),
+		newCompletionCmd(),
+		newApplyCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -95,185 +97,201 @@ func getStatus(ownerFilter string) (*v1.GetStatusResponse, error) {
 // newStatusCmd creates the "status" subcommand.
 func newStatusCmd() *cobra.Command {
 	var ownerFilter string
+	var wf watchFlags
+
+	statusFn := func(cmd *cobra.Command, args []string) error {
+		resp, err := getStatus(ownerFilter)
+		if err != nil {
+			return err
+		}
+
+		// FRR status.
+		fmt.Println("=== FRR Status ===")
+		if resp.FrrStatus != nil {
+			connected := "disconnected"
+			if resp.FrrStatus.Connected {
+				connected = "connected"
+			}
+			fmt.Printf("  Connection: %s\n", connected)
+			if resp.FrrStatus.Version != "" {
+				fmt.Printf("  Version:    %s\n", resp.FrrStatus.Version)
+			}
+			if resp.FrrStatus.Uptime != "" {
+				fmt.Printf("  Uptime:     %s\n", resp.FrrStatus.Uptime)
+			}
+		} else {
+			fmt.Println("  (unavailable)")
+		}
+
+		fmt.Println()
+
+		// Summary counts.
+		fmt.Println("=== Summary ===")
+		fmt.Printf("  BGP Peers:        %d\n", len(resp.Peers))
+		fmt.Printf("  Prefixes:         %d\n", len(resp.Prefixes))
+		fmt.Printf("  BFD Sessions:     %d\n", len(resp.BfdSessions))
+		fmt.Printf("  OSPF Interfaces:  %d\n", len(resp.OspfInterfaces))
+
+		return nil
+	}
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show overall NovaRoute agent status",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := getStatus(ownerFilter)
-			if err != nil {
-				return err
-			}
-
-			// FRR status.
-			fmt.Println("=== FRR Status ===")
-			if resp.FrrStatus != nil {
-				connected := "disconnected"
-				if resp.FrrStatus.Connected {
-					connected = "connected"
-				}
-				fmt.Printf("  Connection: %s\n", connected)
-				if resp.FrrStatus.Version != "" {
-					fmt.Printf("  Version:    %s\n", resp.FrrStatus.Version)
-				}
-				if resp.FrrStatus.Uptime != "" {
-					fmt.Printf("  Uptime:     %s\n", resp.FrrStatus.Uptime)
-				}
-			} else {
-				fmt.Println("  (unavailable)")
-			}
-
-			fmt.Println()
-
-			// Summary counts.
-			fmt.Println("=== Summary ===")
-			fmt.Printf("  BGP Peers:        %d\n", len(resp.Peers))
-			fmt.Printf("  Prefixes:         %d\n", len(resp.Prefixes))
-			fmt.Printf("  BFD Sessions:     %d\n", len(resp.BfdSessions))
-			fmt.Printf("  OSPF Interfaces:  %d\n", len(resp.OspfInterfaces))
-
-			return nil
-		},
+		RunE:  wrapRunEWithWatch(&wf, statusFn),
 	}
 
 	cmd.Flags().StringVar(&ownerFilter, "owner", "", "filter results by owner name")
+	addWatchFlags(cmd, &wf)
 	return cmd
 }
 
 // newPeersCmd creates the "peers" subcommand.
 func newPeersCmd() *cobra.Command {
 	var ownerFilter string
+	var wf watchFlags
+
+	peersFn := func(cmd *cobra.Command, args []string) error {
+		resp, err := getStatus(ownerFilter)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Peers) == 0 {
+			fmt.Println("No BGP peers configured.")
+			return nil
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(w, "NEIGHBOR\tREMOTE AS\tSTATE\tOWNER\tPFX RECV\tPFX SENT\tBFD\tUPTIME")
+		_, _ = fmt.Fprintln(w, "--------\t---------\t-----\t-----\t--------\t--------\t---\t------")
+
+		for _, p := range resp.Peers {
+			bfd := "no"
+			if p.BfdEnabled {
+				bfd = p.BfdStatus
+				if bfd == "" {
+					bfd = "yes"
+				}
+			}
+			uptime := p.Uptime
+			if uptime == "" {
+				uptime = "-"
+			}
+			_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%d\t%d\t%s\t%s\n",
+				p.NeighborAddress,
+				p.RemoteAs,
+				p.State,
+				p.Owner,
+				p.PrefixesReceived,
+				p.PrefixesSent,
+				bfd,
+				uptime,
+			)
+		}
+		return w.Flush()
+	}
 
 	cmd := &cobra.Command{
 		Use:   "peers",
 		Short: "Show BGP peer status table",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := getStatus(ownerFilter)
-			if err != nil {
-				return err
-			}
-
-			if len(resp.Peers) == 0 {
-				fmt.Println("No BGP peers configured.")
-				return nil
-			}
-
-			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NEIGHBOR\tREMOTE AS\tSTATE\tOWNER\tPFX RECV\tPFX SENT\tBFD\tUPTIME")
-			_, _ = fmt.Fprintln(w, "--------\t---------\t-----\t-----\t--------\t--------\t---\t------")
-
-			for _, p := range resp.Peers {
-				bfd := "no"
-				if p.BfdEnabled {
-					bfd = p.BfdStatus
-					if bfd == "" {
-						bfd = "yes"
-					}
-				}
-				uptime := p.Uptime
-				if uptime == "" {
-					uptime = "-"
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%d\t%d\t%s\t%s\n",
-					p.NeighborAddress,
-					p.RemoteAs,
-					p.State,
-					p.Owner,
-					p.PrefixesReceived,
-					p.PrefixesSent,
-					bfd,
-					uptime,
-				)
-			}
-			return w.Flush()
-		},
+		RunE:  wrapRunEWithWatch(&wf, peersFn),
 	}
 
 	cmd.Flags().StringVar(&ownerFilter, "owner", "", "filter results by owner name")
+	addWatchFlags(cmd, &wf)
 	return cmd
 }
 
 // newPrefixesCmd creates the "prefixes" subcommand.
 func newPrefixesCmd() *cobra.Command {
 	var ownerFilter string
+	var wf watchFlags
+
+	prefixesFn := func(cmd *cobra.Command, args []string) error {
+		resp, err := getStatus(ownerFilter)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Prefixes) == 0 {
+			fmt.Println("No prefixes advertised.")
+			return nil
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(w, "PREFIX\tPROTOCOL\tSTATE\tOWNER")
+		_, _ = fmt.Fprintln(w, "------\t--------\t-----\t-----")
+
+		for _, p := range resp.Prefixes {
+			proto := protocolName(p.Protocol)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				p.Prefix,
+				proto,
+				p.State,
+				p.Owner,
+			)
+		}
+		return w.Flush()
+	}
 
 	cmd := &cobra.Command{
 		Use:   "prefixes",
 		Short: "Show prefix advertisement status table",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := getStatus(ownerFilter)
-			if err != nil {
-				return err
-			}
-
-			if len(resp.Prefixes) == 0 {
-				fmt.Println("No prefixes advertised.")
-				return nil
-			}
-
-			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "PREFIX\tPROTOCOL\tSTATE\tOWNER")
-			_, _ = fmt.Fprintln(w, "------\t--------\t-----\t-----")
-
-			for _, p := range resp.Prefixes {
-				proto := protocolName(p.Protocol)
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-					p.Prefix,
-					proto,
-					p.State,
-					p.Owner,
-				)
-			}
-			return w.Flush()
-		},
+		RunE:  wrapRunEWithWatch(&wf, prefixesFn),
 	}
 
 	cmd.Flags().StringVar(&ownerFilter, "owner", "", "filter results by owner name")
+	addWatchFlags(cmd, &wf)
 	return cmd
 }
 
 // newBFDCmd creates the "bfd" subcommand.
 func newBFDCmd() *cobra.Command {
 	var ownerFilter string
+	var wf watchFlags
+
+	bfdFn := func(cmd *cobra.Command, args []string) error {
+		resp, err := getStatus(ownerFilter)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.BfdSessions) == 0 {
+			fmt.Println("No BFD sessions configured.")
+			return nil
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(w, "PEER ADDRESS\tSTATE\tOWNER\tMIN RX (ms)\tMIN TX (ms)\tDETECT MULT\tUPTIME")
+		_, _ = fmt.Fprintln(w, "------------\t-----\t-----\t-----------\t-----------\t-----------\t------")
+
+		for _, b := range resp.BfdSessions {
+			uptime := b.Uptime
+			if uptime == "" {
+				uptime = "-"
+			}
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n",
+				b.PeerAddress,
+				b.State,
+				b.Owner,
+				b.MinRxMs,
+				b.MinTxMs,
+				b.DetectMultiplier,
+				uptime,
+			)
+		}
+		return w.Flush()
+	}
 
 	cmd := &cobra.Command{
 		Use:   "bfd",
 		Short: "Show BFD session status table",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := getStatus(ownerFilter)
-			if err != nil {
-				return err
-			}
-
-			if len(resp.BfdSessions) == 0 {
-				fmt.Println("No BFD sessions configured.")
-				return nil
-			}
-
-			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "PEER ADDRESS\tSTATE\tOWNER\tMIN RX (ms)\tMIN TX (ms)\tDETECT MULT\tUPTIME")
-			_, _ = fmt.Fprintln(w, "------------\t-----\t-----\t-----------\t-----------\t-----------\t------")
-
-			for _, b := range resp.BfdSessions {
-				uptime := b.Uptime
-				if uptime == "" {
-					uptime = "-"
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n",
-					b.PeerAddress,
-					b.State,
-					b.Owner,
-					b.MinRxMs,
-					b.MinTxMs,
-					b.DetectMultiplier,
-					uptime,
-				)
-			}
-			return w.Flush()
-		},
+		RunE:  wrapRunEWithWatch(&wf, bfdFn),
 	}
 
 	cmd.Flags().StringVar(&ownerFilter, "owner", "", "filter results by owner name")
+	addWatchFlags(cmd, &wf)
 	return cmd
 }
 
