@@ -27,8 +27,12 @@ import (
 	novaroutev1alpha1 "github.com/azrtydxb/NovaRoute/api/v1alpha1"
 )
 
-// errNotClientObject is returned when a runtime.Object does not implement client.Object.
-var errNotClientObject = stderrors.New("object does not implement client.Object")
+var (
+	// errNotClientObject is returned when a runtime.Object does not implement client.Object.
+	errNotClientObject = stderrors.New("object does not implement client.Object")
+	// errSecretKeyNotFound is returned when a referenced key is missing from a Secret.
+	errSecretKeyNotFound = stderrors.New("key not found in secret")
+)
 
 const (
 	novaRouteClusterFinalizer = "novaroute.io/finalizer"
@@ -51,6 +55,7 @@ type NovaRouteClusterReconciler struct {
 // +kubebuilder:rbac:groups=novaroute.io,resources=novarouteclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=novaroute.io,resources=novarouteclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts;configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
@@ -365,7 +370,7 @@ func (r *NovaRouteClusterReconciler) reconcileAgentConfigMap(ctx context.Context
 
 		// Convert CRD peer specs to agent config peer entries.
 		for _, p := range cluster.Spec.Agent.BGP.Peers {
-			bgpCfg.Peers = append(bgpCfg.Peers, agentPeerConfig{
+			peerCfg := agentPeerConfig{
 				NeighborAddress: p.Address,
 				RemoteAS:        p.RemoteAS,
 				Description:     p.Description,
@@ -375,9 +380,19 @@ func (r *NovaRouteClusterReconciler) reconcileAgentConfigMap(ctx context.Context
 				BFDDetectMult:   p.BFDDetectMultiplier,
 				Keepalive:       p.Keepalive,
 				HoldTime:        p.HoldTime,
-				Password:        p.Password,
 				MaxPrefixes:     p.MaxPrefixes,
-			})
+			}
+
+			// Resolve BGP password from Secret if referenced.
+			if p.PasswordSecretRef != nil {
+				password, err := r.resolveSecretKeyRef(ctx, cluster.Namespace, p.PasswordSecretRef)
+				if err != nil {
+					return fmt.Errorf("resolving BGP peer %s password secret: %w", p.Address, err)
+				}
+				peerCfg.Password = password
+			}
+
+			bgpCfg.Peers = append(bgpCfg.Peers, peerCfg)
 		}
 
 		cfg.BGP = bgpCfg
@@ -934,6 +949,18 @@ func (r *NovaRouteClusterReconciler) createOrUpdate(ctx context.Context, obj cli
 		"name", key.Name,
 		"namespace", key.Namespace)
 	return r.Update(ctx, obj)
+}
+
+func (r *NovaRouteClusterReconciler) resolveSecretKeyRef(ctx context.Context, namespace string, ref *corev1.SecretKeySelector) (string, error) {
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: namespace}, secret); err != nil {
+		return "", fmt.Errorf("getting secret %s/%s: %w", namespace, ref.Name, err)
+	}
+	val, ok := secret.Data[ref.Key]
+	if !ok {
+		return "", fmt.Errorf("%w: %q in %s/%s", errSecretKeyNotFound, ref.Key, namespace, ref.Name)
+	}
+	return string(val), nil
 }
 
 func hostPathTypePtr(t corev1.HostPathType) *corev1.HostPathType {

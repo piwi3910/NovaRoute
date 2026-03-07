@@ -169,9 +169,10 @@ type BGPPeerSpec struct {
 	// +optional
 	HoldTime uint32 `json:"holdTime,omitempty"`
 
-	// Password is the BGP session password.
+	// PasswordSecretRef references a Secret key containing the BGP session password.
+	// The Secret must be in the same namespace as the NovaRouteCluster.
 	// +optional
-	Password string `json:"password,omitempty"`
+	PasswordSecretRef *corev1.SecretKeySelector `json:"passwordSecretRef,omitempty"`
 
 	// MaxPrefixes is the maximum prefix limit (0 = default 1000).
 	// +optional
