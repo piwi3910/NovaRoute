@@ -60,6 +60,112 @@ spec:
               agent:
                 description: Agent defines the NovaRoute agent configuration.
                 properties:
+                  bgp:
+                    description: BGP holds BGP global settings for the agent.
+                    properties:
+                      asBase:
+                        description: |-
+                          AsBase enables per-node AS computation: local_as = as_base + last octet
+                          of the node IP. Requires NODE_IP env var (injected automatically).
+                        format: int32
+                        type: integer
+                      autoRouterId:
+                        description: AutoRouterID sets router_id to the node IP automatically.
+                        type: boolean
+                      localAs:
+                        description: LocalAS is the local autonomous system number.
+                        format: int32
+                        type: integer
+                      peers:
+                        description: |-
+                          Peers defines BGP peers to configure on every agent at startup.
+                          These peers are automatically applied when FRR becomes ready.
+                        items:
+                          description: BGPPeerSpec defines a BGP peer to be configured
+                            on agent startup.
+                          properties:
+                            address:
+                              description: Address is the IP address of the BGP neighbor.
+                              type: string
+                            bfd:
+                              description: BFD enables BFD for this peer.
+                              type: boolean
+                            bfdDetectMultiplier:
+                              description: BFDDetectMultiplier is the BFD detection
+                                multiplier.
+                              format: int32
+                              type: integer
+                            bfdMinRxMs:
+                              description: BFDMinRxMs is the BFD minimum receive interval
+                                in milliseconds.
+                              format: int32
+                              type: integer
+                            bfdMinTxMs:
+                              description: BFDMinTxMs is the BFD minimum transmit
+                                interval in milliseconds.
+                              format: int32
+                              type: integer
+                            description:
+                              description: Description is an optional human-readable
+                                description.
+                              type: string
+                            holdTime:
+                              description: HoldTime is the BGP hold time in seconds.
+                              format: int32
+                              type: integer
+                            keepalive:
+                              description: Keepalive is the BGP keepalive interval
+                                in seconds.
+                              format: int32
+                              type: integer
+                            maxPrefixes:
+                              description: MaxPrefixes is the maximum prefix limit
+                                (0 = default 1000).
+                              format: int32
+                              type: integer
+                            passwordSecretRef:
+                              description: |-
+                                PasswordSecretRef references a Secret key containing the BGP session password.
+                                The Secret must be in the same namespace as the NovaRouteCluster.
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            remoteAs:
+                              description: RemoteAS is the remote autonomous system
+                                number.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                          required:
+                          - address
+                          - remoteAs
+                          type: object
+                        type: array
+                      routerId:
+                        description: |-
+                          RouterID is the BGP router identifier in IPv4 format.
+                          Supports ${VAR} expansion (e.g., "${NODE_IP}").
+                        type: string
+                    type: object
                   extraArgs:
                     description: ExtraArgs are additional command-line arguments.
                     items:
